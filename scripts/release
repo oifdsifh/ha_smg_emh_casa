@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+MANIFEST_PATH="${REPO_ROOT}/custom_components/ha_smg_emh_casa/manifest.json"
+
+usage() {
+  cat <<'EOF'
+Usage: bash scripts/release <version>
+
+Create a release by:
+- bumping custom_components/ha_smg_emh_casa/manifest.json
+- committing the version change
+- creating an annotated git tag
+- pushing the current branch and tag
+
+Example:
+  bash scripts/release 0.3.3
+EOF
+}
+
+die() {
+  echo "Error: $*" >&2
+  exit 1
+}
+
+require_command() {
+  command -v "$1" >/dev/null 2>&1 || die "required command not found: $1"
+}
+
+VERSION=""
+
+if [[ $# -eq 1 && ( "$1" == "-h" || "$1" == "--help" ) ]]; then
+  usage
+  exit 0
+fi
+
+if [[ $# -eq 1 ]]; then
+  VERSION="$1"
+else
+  usage
+  exit 1
+fi
+
+[[ "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || \
+  die "version must use the format X.Y.Z"
+
+cd "${REPO_ROOT}"
+
+require_command git
+require_command jq
+
+git rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "must be run from inside a git repository"
+[[ -f "${MANIFEST_PATH}" ]] || die "manifest not found at ${MANIFEST_PATH}"
+
+BRANCH="$(git branch --show-current)"
+[[ -n "${BRANCH}" ]] || die "release must be created from a branch, not a detached HEAD"
+
+if [[ -n "$(git status --porcelain)" ]]; then
+  die "git working tree is not clean"
+fi
+
+CURRENT_VERSION="$(jq -r '.version' "${MANIFEST_PATH}")"
+[[ "${CURRENT_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || \
+  die "current manifest version must use the format X.Y.Z"
+
+TAG="v${VERSION}"
+
+git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null 2>&1 && \
+  die "tag ${TAG} already exists locally"
+
+echo "Current version: ${CURRENT_VERSION}"
+echo "Next version: ${VERSION}"
+echo "Branch: ${BRANCH}"
+
+TMP_MANIFEST="$(mktemp)"
+jq --arg version "${VERSION}" '.version = $version' "${MANIFEST_PATH}" > "${TMP_MANIFEST}"
+mv "${TMP_MANIFEST}" "${MANIFEST_PATH}"
+
+git add "${MANIFEST_PATH}"
+git commit -m "chore(release): v${VERSION}"
+git tag -a "${TAG}" -m "Release ${TAG}"
+git push origin "${BRANCH}" "${TAG}"
+
+echo "Release ${TAG} is ready"

@@ -1,0 +1,57 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Validate tag matches integration version
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          manifest_version="$(jq -r '.version' custom_components/ha_smg_emh_casa/manifest.json)"
+          expected_tag="v${manifest_version}"
+
+          if [ "$TAG_NAME" != "$expected_tag" ]; then
+            echo "Tag ${TAG_NAME} does not match manifest version ${manifest_version}."
+            exit 1
+          fi
+
+      - name: Generate release notes
+        id: git-cliff
+        uses: orhun/git-cliff-action@c93ef52f3d0ddcdcc9bd5447d98d458a11cd4f72 # v4
+        with:
+          config: cliff.toml
+          args: -vv --latest --strip header
+
+      - name: Package integration
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          mkdir -p dist
+          package_name="ha_smg_emh_casa-${TAG_NAME}.zip"
+          rm -f "dist/${package_name}"
+          zip -r "dist/${package_name}" custom_components/ha_smg_emh_casa
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
+        with:
+          fail_on_unmatched_files: true
+          body: ${{ steps.git-cliff.outputs.content }}
+          files: dist/ha_smg_emh_casa-${{ github.ref_name }}.zip
+          name: EMH CASA ${{ github.ref_name }}
+          prerelease: ${{ contains(github.ref_name, '-') }}

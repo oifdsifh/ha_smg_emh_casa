@@ -1,0 +1,59 @@
+[remote.github]
+owner = "oifdsifh"
+repo = "ha_smg_emh_casa"
+
+[changelog]
+header = """
+# Changelog
+
+All notable changes to this project will be documented in this file.
+"""
+body = """
+{%- if version %}
+## [{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }}
+{%- else %}
+## [Unreleased]
+{%- endif %}
+
+{%- for group, commits in commits | group_by(attribute="group") %}
+
+### {{ group }}
+{%- for commit in commits %}
+- {{ commit.message | upper_first }}
+{%- endfor %}
+{%- endfor %}
+
+"""
+footer = ""
+trim = true
+
+[git]
+conventional_commits = true
+filter_unconventional = false
+protect_breaking_commits = true
+filter_commits = false
+tag_pattern = "v[0-9].*"
+sort_commits = "oldest"
+
+commit_preprocessors = [
+    { pattern = "(?s)\\n.*", replace = "" },
+]
+
+commit_parsers = [
+    { message = "^[a-z]+(\\([^)]*\\))?!:", group = "Breaking Changes" },
+    { body = ".*BREAKING CHANGE:.*", group = "Breaking Changes" },
+    { message = "^feat", group = "Added" },
+    { message = "^fix", group = "Fixed" },
+    { message = "^docs\\(changelog\\):", skip = true },
+    { message = "^chore\\(release\\):", skip = true },
+    { message = "^refactor", group = "Changed" },
+    { message = "^perf", group = "Changed" },
+    { message = "^docs", group = "Documentation" },
+    { message = "^test", group = "Tests" },
+    { message = "^build", group = "Maintenance" },
+    { message = "^ci", group = "Maintenance" },
+    { message = "^chore", group = "Maintenance" },
+    { message = "^Bump ", group = "Maintenance" },
+    { message = "^revert", group = "Changed" },
+    { message = ".*", group = "Other" },
+]
