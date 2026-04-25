@@ -6,8 +6,9 @@ from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from custom_components.ha_smg_emh_casa.const import DOMAIN
 from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+from custom_components.ha_smg_emh_casa.const import DOMAIN
 
 from .const import MOCK_API_DATA, MOCK_CONFIG, MOCK_GATEWAY_ID
 

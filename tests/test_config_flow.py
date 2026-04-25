@@ -7,10 +7,6 @@ from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from custom_components.ha_smg_emh_casa.api import (
-    EMHCASAApiClientAuthenticationError,
-)
-from custom_components.ha_smg_emh_casa.const import DOMAIN
 from homeassistant.const import (
     CONF_HOST,
     CONF_PASSWORD,
@@ -19,6 +15,11 @@ from homeassistant.const import (
 )
 from homeassistant.data_entry_flow import FlowResultType, InvalidData
 from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
+
+from custom_components.ha_smg_emh_casa.api import (
+    EMHCASAApiClientAuthenticationError,
+)
+from custom_components.ha_smg_emh_casa.const import DOMAIN
 
 from .const import MOCK_CONFIG, MOCK_GATEWAY_HOST, MOCK_GATEWAY_ID
 

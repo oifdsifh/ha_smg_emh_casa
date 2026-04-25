@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
+
 from custom_components.ha_smg_emh_casa.api import (
     METER_REQUEST_DELAY,
     REQUEST_RETRY_BASE_DELAY,
