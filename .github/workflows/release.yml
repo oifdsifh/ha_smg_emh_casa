@@ -5,12 +5,20 @@ on:
     tags:
       - "v*.*.*"
 
-permissions:
-  contents: write
+permissions: {}
 
 jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  validate:
+    uses: ./.github/workflows/validate.yml
+
   release:
     name: Create release
+    needs: [ci, validate]
+    permissions:
+      contents: write
     runs-on: ubuntu-latest
 
     steps:
