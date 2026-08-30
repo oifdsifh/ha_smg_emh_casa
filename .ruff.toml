@@ -2,7 +2,7 @@
 
 # Keep this aligned with the minimum Python version supported by the Home Assistant
 # release pinned in requirements_test_floor.txt.
-target-version = "py313"
+target-version = "py314"
 
 [lint]
 select = [
