@@ -1,6 +1,8 @@
 # The contents of this file is based on https://github.com/home-assistant/core/blob/dev/pyproject.toml
 
-target-version = "py314"
+# Keep this aligned with the minimum Python version supported by the Home Assistant
+# release pinned in requirements_test_floor.txt.
+target-version = "py313"
 
 [lint]
 select = [

@@ -202,7 +202,7 @@ class EMHCASAMeterValueSensor(EMHCASAEntity, SensorEntity):
 
         try:
             normalized_value = Decimal(str(raw_value)) * (Decimal(10) ** int(scaler))
-        except InvalidOperation, TypeError, ValueError:
+        except (InvalidOperation, TypeError, ValueError):
             return str(raw_value)
 
         if isinstance(unit_code, int) and unit_code in UNIT_CODE_NORMALIZERS:

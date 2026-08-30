@@ -37,8 +37,18 @@ jobs:
         run: python3 -m ruff format . --check
 
   pytest:
-    name: "Pytest"
+    name: "Pytest (${{ matrix.name }})"
     runs-on: "ubuntu-latest"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: latest
+            python-version: "3.14"
+            requirements-file: requirements_test.txt
+          - name: one-year floor
+            python-version: "3.13"
+            requirements-file: requirements_test_floor.txt
     steps:
       - name: Checkout the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -46,11 +56,12 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.14"
+          python-version: "${{ matrix.python-version }}"
           cache: "pip"
           cache-dependency-path: |
             requirements.txt
             requirements_test.txt
+            requirements_test_floor.txt
 
       - name: Run test suite
-        run: ./scripts/test
+        run: ./scripts/test "${{ matrix.requirements-file }}"
