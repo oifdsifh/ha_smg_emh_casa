@@ -33,17 +33,25 @@ the readings it exposes. It supports UI setup and local network discovery.
 ## Setup
 
 1. In Home Assistant, go to `Settings` > `Devices & Services`.
-2. Click `Add Integration`.
-3. Search for `EMH CASA`.
-4. Enter the gateway host and choose how Home Assistant should check its TLS
-   certificate.
-5. If you choose certificate pinning, review and accept the SHA-256 fingerprint
-   shown by the gateway before entering your username and password.
-6. Finish the setup flow. After a successful connection, sensors will be
-   created automatically.
-
-If your gateway is discovered automatically, Home Assistant may already offer
-the integration for setup.
+2. Start the setup in one of these ways:
+   - Select the discovered EMH CASA gateway if Home Assistant already offers
+     it. The gateway host will be prefilled.
+   - Otherwise, click `Add Integration` and search for `EMH CASA`.
+3. Enter or confirm the gateway host, then choose how Home Assistant should
+   check its TLS certificate.
+4. If you choose **Trust and remember this gateway certificate**, review the
+   SHA-256 fingerprint and certificate validity dates. Compare the fingerprint
+   with one obtained directly from the gateway if possible, then accept it.
+   The trusted-certificate and insecure modes skip this confirmation step.
+5. Enter the username and password for the EMH CASA user portal and choose the
+   scan interval in seconds.
+6. Submit the form. The integration checks the connection according to the
+   selected TLS mode, authenticates, and verifies that it can fetch meter data.
+7. If validation fails, review the error shown in the flow, correct the relevant
+   setting, and submit it again.
+8. After successful validation, the flow reports if the gateway is already
+   configured. Otherwise, it creates the config entry and the sensors appear
+   automatically.
 
 ## TLS certificate checking
 
