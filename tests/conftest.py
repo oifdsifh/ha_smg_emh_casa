@@ -28,6 +28,7 @@ def mock_config_entry_fixture() -> MockConfigEntry:
         domain=DOMAIN,
         title=MOCK_CONFIG["username"],
         data={**MOCK_CONFIG, "gateway_id": MOCK_GATEWAY_ID},
+        unique_id=MOCK_GATEWAY_ID,
     )
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 from typing import TYPE_CHECKING
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from homeassistant.config_entries import ConfigEntryState
@@ -14,6 +15,11 @@ from homeassistant.const import (
     CONF_USERNAME,
 )
 from homeassistant.helpers import device_registry as dr
+
+from custom_components.ha_smg_emh_casa.api import (
+    EMHCASAApiClientAuthenticationError,
+)
+from custom_components.ha_smg_emh_casa.const import DOMAIN
 
 from .const import MOCK_CONFIG, MOCK_METER_ID
 
@@ -150,3 +156,29 @@ async def test_setup_uses_meter_id_as_serial_number_without_gateway_id(
     )
     assert sensor_entity is not None
     assert sensor_entity.serial_number == MOCK_METER_ID
+
+
+async def test_auth_failure_starts_reauth_flow(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """An authentication failure should start an actionable reauth flow."""
+    mock_config_entry.add_to_hass(hass)
+
+    with patch(
+        "custom_components.ha_smg_emh_casa.api.EMHCASAClient.async_get_data",
+        new=AsyncMock(
+            side_effect=EMHCASAApiClientAuthenticationError("Invalid credentials"),
+        ),
+    ):
+        assert not await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert mock_config_entry.state is ConfigEntryState.SETUP_ERROR
+    reauth_flows = hass.config_entries.flow.async_progress_by_handler(DOMAIN)
+    assert len(reauth_flows) == 1
+    reauth_flow = reauth_flows[0]
+    context = reauth_flow.get("context", {})
+    assert context.get("source") == "reauth"
+    assert context.get("entry_id") == mock_config_entry.entry_id
+    assert reauth_flow.get("step_id") == "reauth_confirm"

@@ -46,7 +46,7 @@ jobs:
           - name: latest
             python-version: "3.14"
             requirements-file: requirements_test.txt
-          - name: one-year floor
+          - name: floor
             python-version: "3.14"
             requirements-file: requirements_test_floor.txt
     steps:

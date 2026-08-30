@@ -1,6 +1,15 @@
 {
     "config": {
         "step": {
+            "reauth_confirm": {
+                "description": "Update the gateway settings to reauthenticate.",
+                "data": {
+                    "host": "Gateway host",
+                    "username": "Username",
+                    "password": "Password",
+                    "scan_interval": "Scan interval"
+                }
+            },
             "user": {
                 "description": "If you need help with the configuration have a look here: {documentation_url}",
                 "data": {
@@ -17,7 +26,9 @@
             "unknown": "Unknown error occurred."
         },
         "abort": {
-            "already_configured": "This entry is already configured."
+            "already_configured": "This entry is already configured.",
+            "reauth_successful": "Reauthentication was successful.",
+            "wrong_gateway": "The gateway does not match the previously configured gateway."
         }
     },
     "options": {

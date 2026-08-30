@@ -27,6 +27,9 @@ from .api import (
 from .const import CONF_GATEWAY_ID, DEFAULT_SCAN_INTERVAL, DOMAIN, LOGGER
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+    from typing import Any
+
     from homeassistant.config_entries import ConfigEntry
     from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
 
@@ -135,6 +138,87 @@ class EMHCASAFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             errors=_errors,
         )
 
+    async def async_step_reauth(
+        self,
+        _: Mapping[str, Any],
+    ) -> config_entries.ConfigFlowResult:
+        """Handle a reauthentication request."""
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(
+        self,
+        user_input: dict[str, Any] | None = None,
+    ) -> config_entries.ConfigFlowResult:
+        """Validate and save updated gateway settings."""
+        _errors = {}
+        if user_input is not None:
+            try:
+                gateway_id = await async_validate_connection(
+                    host=user_input[CONF_HOST],
+                    username=user_input[CONF_USERNAME],
+                    password=user_input[CONF_PASSWORD],
+                )
+            except EMHCASAApiClientAuthenticationError as exception:
+                LOGGER.warning(exception)
+                _errors["base"] = "auth"
+            except EMHCASAApiClientCommunicationError as exception:
+                LOGGER.error(exception)
+                _errors["base"] = "connection"
+            except EMHCASAApiClientError as exception:
+                LOGGER.exception(exception)
+                _errors["base"] = "unknown"
+            else:
+                reauth_entry = self._get_reauth_entry()
+                if gateway_id is not None:
+                    await self.async_set_unique_id(gateway_id)
+                    self._abort_if_unique_id_mismatch(reason="wrong_gateway")
+
+                return self.async_update_reload_and_abort(
+                    reauth_entry,
+                    options=reauth_entry.options | user_input,
+                )
+
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=self._async_get_reauth_schema(user_input),
+            errors=_errors,
+        )
+
+    def _async_get_reauth_schema(
+        self,
+        user_input: dict[str, Any] | None,
+    ) -> vol.Schema:
+        """Build the reauthentication schema without exposing the password."""
+        reauth_entry = self._get_reauth_entry()
+        values = reauth_entry.data | reauth_entry.options | (user_input or {})
+        schema: dict[vol.Marker, selector.TextSelector | selector.NumberSelector] = {
+            vol.Required(CONF_HOST, default=values[CONF_HOST]): selector.TextSelector(
+                selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT),
+            ),
+            vol.Required(
+                CONF_USERNAME,
+                default=values[CONF_USERNAME],
+            ): selector.TextSelector(
+                selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT),
+            ),
+            vol.Required(CONF_PASSWORD): selector.TextSelector(
+                selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD),
+            ),
+            vol.Required(
+                CONF_SCAN_INTERVAL,
+                default=values.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1,
+                    max=3600,
+                    step=1,
+                    mode=selector.NumberSelectorMode.BOX,
+                    unit_of_measurement="s",
+                ),
+            ),
+        }
+        return vol.Schema(schema)
+
     def _async_get_user_schema(
         self,
         user_input: dict | None,
@@ -185,7 +269,7 @@ class EMHCASAFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         return vol.Schema(schema)
 
 
-class EMHCASAOptionsFlowHandler(config_entries.OptionsFlow):
+class EMHCASAOptionsFlowHandler(config_entries.OptionsFlowWithReload):
     """Handle EMH CASA options."""
 
     def __init__(self, config_entry: ConfigEntry) -> None:

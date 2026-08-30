@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, patch
 
 import pytest
+import voluptuous as vol
 from homeassistant.const import (
     CONF_HOST,
     CONF_PASSWORD,
@@ -18,6 +19,8 @@ from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
 
 from custom_components.ha_smg_emh_casa.api import (
     EMHCASAApiClientAuthenticationError,
+    EMHCASAApiClientCommunicationError,
+    EMHCASAApiClientError,
 )
 from custom_components.ha_smg_emh_casa.const import DOMAIN
 
@@ -175,6 +178,211 @@ async def test_user_step_falls_back_to_host_when_gateway_id_missing(
     assert config_entry.unique_id == "192-0-2-25"
 
 
+async def test_reauth_form_uses_effective_settings_and_clears_password(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Reauth should prefill effective settings but not the stored password."""
+    mock_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        mock_config_entry,
+        options={
+            CONF_HOST: "198.51.100.20",
+            CONF_USERNAME: "updated-user@example.com",
+            CONF_PASSWORD: "stored-option-password",
+            CONF_SCAN_INTERVAL: 45,
+        },
+    )
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={
+            "source": "reauth",
+            "entry_id": mock_config_entry.entry_id,
+            "unique_id": mock_config_entry.unique_id,
+        },
+        data=mock_config_entry.data,
+    )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "reauth_confirm"
+    with pytest.raises(vol.Invalid):
+        result["data_schema"]({})
+    assert result["data_schema"]({CONF_PASSWORD: "replacement-password"}) == {
+        CONF_HOST: "198.51.100.20",
+        CONF_USERNAME: "updated-user@example.com",
+        CONF_PASSWORD: "replacement-password",
+        CONF_SCAN_INTERVAL: 45,
+    }
+
+
+@pytest.mark.usefixtures("mock_async_get_data")
+async def test_reauth_updates_options_and_reloads(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Valid reauth settings should be merged into options and reloaded."""
+    mock_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        mock_config_entry,
+        options={"future_option": "preserved"},
+    )
+    updated_config = {
+        CONF_HOST: "198.51.100.20",
+        CONF_USERNAME: "updated-user@example.com",
+        CONF_PASSWORD: "replacement-password",
+        CONF_SCAN_INTERVAL: 45,
+    }
+
+    with (
+        patch(
+            "custom_components.ha_smg_emh_casa.api.EMHCASAClient.async_get_gateway_id",
+            new=AsyncMock(return_value=MOCK_GATEWAY_ID),
+        ),
+        patch.object(
+            hass.config_entries,
+            "async_schedule_reload",
+        ) as mock_schedule_reload,
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={
+                "source": "reauth",
+                "entry_id": mock_config_entry.entry_id,
+                "unique_id": mock_config_entry.unique_id,
+            },
+            data=mock_config_entry.data,
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input=updated_config,
+        )
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reauth_successful"
+    assert mock_config_entry.options == {
+        "future_option": "preserved",
+        **updated_config,
+    }
+    mock_schedule_reload.assert_called_once_with(mock_config_entry.entry_id)
+
+
+@pytest.mark.usefixtures("mock_async_get_data")
+async def test_reauth_allows_missing_gateway_id(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Reauth should retain the existing identity if no gateway ID is available."""
+    mock_config_entry.add_to_hass(hass)
+
+    with (
+        patch(
+            "custom_components.ha_smg_emh_casa.api.EMHCASAClient.async_get_gateway_id",
+            new=AsyncMock(return_value=None),
+        ),
+        patch.object(hass.config_entries, "async_schedule_reload"),
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={
+                "source": "reauth",
+                "entry_id": mock_config_entry.entry_id,
+                "unique_id": mock_config_entry.unique_id,
+            },
+            data=mock_config_entry.data,
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={**MOCK_CONFIG, CONF_PASSWORD: "replacement-password"},
+        )
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reauth_successful"
+    assert mock_config_entry.unique_id == MOCK_GATEWAY_ID
+
+
+@pytest.mark.usefixtures("mock_async_get_data")
+async def test_reauth_rejects_different_gateway(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Reauth should not repoint an entry to a different gateway."""
+    mock_config_entry.add_to_hass(hass)
+    original_options = dict(mock_config_entry.options)
+
+    with patch(
+        "custom_components.ha_smg_emh_casa.api.EMHCASAClient.async_get_gateway_id",
+        new=AsyncMock(return_value="different-gateway"),
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={
+                "source": "reauth",
+                "entry_id": mock_config_entry.entry_id,
+                "unique_id": mock_config_entry.unique_id,
+            },
+            data=mock_config_entry.data,
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={**MOCK_CONFIG, CONF_PASSWORD: "replacement-password"},
+        )
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "wrong_gateway"
+    assert mock_config_entry.options == original_options
+
+
+@pytest.mark.parametrize(
+    ("exception", "expected_error"),
+    [
+        (EMHCASAApiClientAuthenticationError("Invalid credentials"), "auth"),
+        (EMHCASAApiClientCommunicationError("Cannot connect"), "connection"),
+        (EMHCASAApiClientError("Unexpected response"), "unknown"),
+    ],
+)
+async def test_reauth_validation_error_stays_on_form(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    exception: EMHCASAApiClientError,
+    expected_error: str,
+) -> None:
+    """Reauth validation errors should not modify the config entry."""
+    mock_config_entry.add_to_hass(hass)
+    original_options = dict(mock_config_entry.options)
+
+    with (
+        patch(
+            "custom_components.ha_smg_emh_casa.api.EMHCASAClient.async_get_gateway_id",
+            new=AsyncMock(return_value=MOCK_GATEWAY_ID),
+        ),
+        patch(
+            "custom_components.ha_smg_emh_casa.api.EMHCASAClient.async_get_data",
+            new=AsyncMock(side_effect=exception),
+        ),
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={
+                "source": "reauth",
+                "entry_id": mock_config_entry.entry_id,
+                "unique_id": mock_config_entry.unique_id,
+            },
+            data=mock_config_entry.data,
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={**MOCK_CONFIG, CONF_PASSWORD: "replacement-password"},
+        )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "reauth_confirm"
+    assert result["errors"] == {"base": expected_error}
+    assert mock_config_entry.options == original_options
+    with pytest.raises(vol.Invalid):
+        result["data_schema"]({})
+
+
 @pytest.mark.usefixtures("mock_async_get_data")
 async def test_options_flow_updates_full_configuration(
     hass: HomeAssistant,
@@ -183,9 +391,15 @@ async def test_options_flow_updates_full_configuration(
     """The options flow should allow changing the full configuration."""
     mock_config_entry.add_to_hass(hass)
 
-    with patch(
-        "custom_components.ha_smg_emh_casa.api.EMHCASAClient.async_get_gateway_id",
-        new=AsyncMock(return_value=MOCK_GATEWAY_ID),
+    with (
+        patch(
+            "custom_components.ha_smg_emh_casa.api.EMHCASAClient.async_get_gateway_id",
+            new=AsyncMock(return_value=MOCK_GATEWAY_ID),
+        ),
+        patch.object(
+            hass.config_entries,
+            "async_schedule_reload",
+        ) as mock_schedule_reload,
     ):
         result = await hass.config_entries.options.async_init(
             mock_config_entry.entry_id,
@@ -211,6 +425,7 @@ async def test_options_flow_updates_full_configuration(
         CONF_PASSWORD: "even-more-secret",
         CONF_SCAN_INTERVAL: 45,
     }
+    mock_schedule_reload.assert_called_once_with(mock_config_entry.entry_id)
 
 
 async def test_options_flow_auth_error_stays_on_form(
