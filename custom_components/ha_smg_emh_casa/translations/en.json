@@ -97,12 +97,11 @@
     "issues": {
         "certificate_changed": {
             "title": "The EMH CASA gateway certificate changed",
-            "description": "Home Assistant stopped connecting to **{entry_title}** before sending credentials because its certificate changed.\n\n**Previously trusted fingerprint:** `{old_fingerprint}`\n\n**New fingerprint:** `{new_fingerprint}`\n\nOnly accept the replacement after confirming that the gateway or reverse proxy certificate was intentionally changed.",
             "fix_flow": {
                 "step": {
                     "confirm": {
                         "title": "Accept the replacement gateway certificate?",
-                        "description": "Home Assistant will check the certificate twice and verify the gateway identity before saving it.\n\n**Previously trusted fingerprint:** `{old_fingerprint}`\n\n**New fingerprint:** `{new_fingerprint}`"
+                        "description": "Home Assistant stopped connecting to **{entry_title}** before sending credentials because its certificate changed. Only accept the replacement after confirming that the certificate was intentionally changed. Home Assistant will check the certificate twice and verify the gateway identity before saving it.\n\n**Previously trusted fingerprint:** `{old_fingerprint}`\n\n**New fingerprint:** `{new_fingerprint}`"
                     }
                 },
                 "error": {
