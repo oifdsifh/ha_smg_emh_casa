@@ -7,6 +7,11 @@ from homeassistant.const import (
     CONF_USERNAME,
 )
 
+from custom_components.ha_smg_emh_casa.const import (
+    CONF_TLS_MODE,
+    TLS_MODE_INSECURE,
+)
+
 MOCK_METER_ID = "1emh1234567890"
 
 MOCK_API_DATA = {
@@ -38,6 +43,7 @@ MOCK_GATEWAY_ID = "eemh0123456789"
 
 MOCK_CONFIG = {
     CONF_HOST: MOCK_GATEWAY_HOST,
+    CONF_TLS_MODE: TLS_MODE_INSECURE,
     CONF_USERNAME: "test-user@example.com",
     CONF_PASSWORD: "super-secret",
     CONF_SCAN_INTERVAL: 60,

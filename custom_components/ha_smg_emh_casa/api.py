@@ -11,6 +11,8 @@ from urllib.request import parse_http_list, parse_keqv_list
 
 import httpx
 
+from .tls import is_certificate_verification_error
+
 REQUEST_RETRIES = 3
 REQUEST_RETRY_BASE_DELAY = 1.0
 METER_REQUEST_DELAY = 0.5
@@ -30,6 +32,12 @@ class EMHCASAApiClientAuthenticationError(
     EMHCASAApiClientError,
 ):
     """Exception to indicate an authentication error."""
+
+
+class EMHCASAApiClientCertificateError(
+    EMHCASAApiClientCommunicationError,
+):
+    """Exception to indicate that TLS certificate verification failed."""
 
 
 def _build_exception_message(prefix: str, exception: Exception) -> str:
@@ -205,6 +213,12 @@ class EMHCASAClient:
                     msg,
                 ) from exception
             except (httpx.RequestError, socket.gaierror) as exception:
+                if is_certificate_verification_error(exception):
+                    msg = _build_exception_message(
+                        "TLS certificate verification failed",
+                        exception,
+                    )
+                    raise EMHCASAApiClientCertificateError(msg) from exception
                 last_exception = exception
                 if attempt < REQUEST_RETRIES - 1:
                     await asyncio.sleep(REQUEST_RETRY_BASE_DELAY * (attempt + 1))
@@ -214,16 +228,6 @@ class EMHCASAClient:
             except json.JSONDecodeError as exception:
                 msg = _build_exception_message(
                     "Invalid JSON returned by gateway",
-                    exception,
-                )
-                raise EMHCASAApiClientError(
-                    msg,
-                ) from exception
-            except EMHCASAApiClientError:
-                raise
-            except Exception as exception:  # pylint: disable=broad-except
-                msg = _build_exception_message(
-                    "Something really wrong happened",
                     exception,
                 )
                 raise EMHCASAApiClientError(
@@ -259,6 +263,12 @@ class EMHCASAClient:
                 msg,
             ) from exception
         except (httpx.RequestError, socket.gaierror) as exception:
+            if is_certificate_verification_error(exception):
+                msg = _build_exception_message(
+                    "TLS certificate verification failed",
+                    exception,
+                )
+                raise EMHCASAApiClientCertificateError(msg) from exception
             last_exception = exception
 
         msg = _build_exception_message(

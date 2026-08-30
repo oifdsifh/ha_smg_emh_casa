@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import ssl
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -11,6 +12,7 @@ import pytest
 from custom_components.ha_smg_emh_casa.api import (
     METER_REQUEST_DELAY,
     REQUEST_RETRY_BASE_DELAY,
+    EMHCASAApiClientCertificateError,
     EMHCASAApiClientCommunicationError,
     EMHCASAClient,
 )
@@ -195,3 +197,30 @@ async def test_api_wrapper_uses_httpx_timeout_errors() -> None:
             await client.async_get_meters()
 
     assert "Timeout error fetching information" in str(err.value)
+
+
+async def test_api_wrapper_surfaces_certificate_verification_errors() -> None:
+    """TLS verification failures should bypass transport retries."""
+    attempts = 0
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        cause = ssl.SSLCertVerificationError("certificate verify failed")
+        msg = "[SSL: CERTIFICATE_VERIFY_FAILED]"
+        raise httpx.ConnectError(msg) from cause
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+    ) as http_client:
+        client = EMHCASAClient(
+            host="192.0.2.25",
+            username="user",
+            password=MOCK_CONFIG["password"],
+            client=http_client,
+        )
+
+        with pytest.raises(EMHCASAApiClientCertificateError):
+            await client.async_get_meters()
+
+    assert attempts == 1

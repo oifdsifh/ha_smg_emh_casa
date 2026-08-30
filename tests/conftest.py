@@ -8,7 +8,10 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.ha_smg_emh_casa.const import DOMAIN
+from custom_components.ha_smg_emh_casa.const import (
+    CONFIG_ENTRY_MINOR_VERSION,
+    DOMAIN,
+)
 
 from .const import MOCK_API_DATA, MOCK_CONFIG, MOCK_GATEWAY_ID
 
@@ -29,6 +32,7 @@ def mock_config_entry_fixture() -> MockConfigEntry:
         title=MOCK_CONFIG["username"],
         data={**MOCK_CONFIG, "gateway_id": MOCK_GATEWAY_ID},
         unique_id=MOCK_GATEWAY_ID,
+        minor_version=CONFIG_ENTRY_MINOR_VERSION,
     )
 
 

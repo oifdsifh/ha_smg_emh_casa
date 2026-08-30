@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, override
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -13,6 +13,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.const import UnitOfEnergy
+from homeassistant.core import callback
 
 from .const import OBIS_SENSOR_METADATA, UNIT_CODE_NORMALIZERS
 from .entity import EMHCASAEntity
@@ -106,7 +107,7 @@ def _discover_meter_descriptions(
 
 
 async def async_setup_entry(
-    hass: HomeAssistant,  # noqa: ARG001 Unused function argument: `hass`
+    _hass: HomeAssistant,
     entry: EMHCASAConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
@@ -138,7 +139,10 @@ async def async_setup_entry(
     entry.async_on_unload(coordinator.async_add_listener(_add_new_entities))
 
 
-class EMHCASAMeterValueSensor(EMHCASAEntity, SensorEntity):
+class EMHCASAMeterValueSensor(  # pyright: ignore[reportIncompatibleVariableOverride]
+    EMHCASAEntity,
+    SensorEntity,
+):
     """Sensor entity for a single value reported by a meter."""
 
     _attr_has_entity_name = True
@@ -164,6 +168,19 @@ class EMHCASAMeterValueSensor(EMHCASAEntity, SensorEntity):
             f"{coordinator.config_entry.entry_id}_"
             f"{meter_id}_{value_description.logical_name}"
         )
+        self._update_state()
+
+    @callback
+    @override
+    def _handle_coordinator_update(self) -> None:
+        """Update the sensor state before writing it to Home Assistant."""
+        self._update_state()
+        super()._handle_coordinator_update()
+
+    def _update_state(self) -> None:
+        """Update state attributes from the latest coordinator data."""
+        self._attr_native_value = self._get_native_value()
+        self._attr_extra_state_attributes = self._get_extra_state_attributes()
 
     @property
     def _meter_data(self) -> dict[str, Any]:
@@ -186,8 +203,7 @@ class EMHCASAMeterValueSensor(EMHCASAEntity, SensorEntity):
 
         return None
 
-    @property
-    def native_value(self) -> Decimal | str | None:
+    def _get_native_value(self) -> Decimal | str | None:
         """Return the normalized sensor value."""
         value_payload = self._value_payload
         if value_payload is None:
@@ -210,8 +226,7 @@ class EMHCASAMeterValueSensor(EMHCASAEntity, SensorEntity):
 
         return normalized_value
 
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
+    def _get_extra_state_attributes(self) -> dict[str, Any]:
         """Expose meter metadata alongside the reading."""
         meter_data = self._meter_data
         value_payload = self._value_payload or {}
