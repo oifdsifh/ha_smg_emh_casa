@@ -18,5 +18,7 @@ updates:
     exclude-paths:
       - "requirements_test_floor.txt"
     ignore:
-      # Dependabot should not update Home Assistant as that should match the homeassistant key in hacs.json
+      # Home Assistant and its generated pytest helper must be updated together.
+      # The helper exact-pins one Home Assistant release and also tracks betas.
       - dependency-name: "homeassistant"
+      - dependency-name: "pytest-homeassistant-custom-component"
