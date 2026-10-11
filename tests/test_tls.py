@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import ssl
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -30,14 +29,8 @@ from custom_components.ha_smg_emh_casa.tls import (
 )
 
 TEST_HTTPS_PORT = 8443
-FIXTURES = Path(__file__).parent / "fixtures"
-
-
-@pytest.fixture
-def legacy_certificate() -> tuple[bytes, str]:
-    """Read the original bytes of the synthetic legacy gateway certificate."""
-    pem = (FIXTURES / "legacy_certificate.pem").read_text()
-    return ssl.PEM_cert_to_DER_cert(pem), pem
+CERTIFICATE_DER = b"gateway certificate"
+CERTIFICATE_PEM = ssl.DER_cert_to_PEM_cert(CERTIFICATE_DER)
 
 
 @pytest.mark.parametrize(
@@ -89,13 +82,10 @@ def test_normalize_legacy_host_upgrades_http() -> None:
     )
 
 
-async def test_probe_certificate_only_performs_tls_handshake(
-    legacy_certificate: tuple[bytes, str],
-) -> None:
+async def test_probe_certificate_only_performs_tls_handshake() -> None:
     """Certificate discovery should read the peer certificate without HTTP."""
-    certificate_der, certificate_pem = legacy_certificate
     ssl_object = MagicMock()
-    ssl_object.getpeercert.return_value = certificate_der
+    ssl_object.getpeercert.return_value = CERTIFICATE_DER
     writer = MagicMock()
     writer.get_extra_info.return_value = ssl_object
     writer.wait_closed = AsyncMock()
@@ -106,8 +96,8 @@ async def test_probe_certificate_only_performs_tls_handshake(
     ) as open_connection:
         certificate = await async_probe_certificate("gateway.example.test:8443")
 
-    assert certificate.pem == certificate_pem
-    assert certificate.fingerprint == hashlib.sha256(certificate_der).hexdigest()
+    assert certificate.pem == CERTIFICATE_PEM
+    assert certificate.fingerprint == hashlib.sha256(CERTIFICATE_DER).hexdigest()
     open_connection.assert_awaited_once()
     connection_call = open_connection.await_args
     assert connection_call is not None
@@ -117,15 +107,15 @@ async def test_probe_certificate_only_performs_tls_handshake(
     writer.wait_closed.assert_awaited_once()
 
 
-async def test_pinned_probe_verifies_in_one_handshake(
-    legacy_certificate: tuple[bytes, str],
-) -> None:
+async def test_pinned_probe_verifies_in_one_handshake() -> None:
     """The normal polling probe must validate the saved pin without extra IO."""
-    certificate_der, certificate_pem = legacy_certificate
     with (
         patch(
+            "custom_components.ha_smg_emh_casa.tls.ssl.SSLContext.load_verify_locations"
+        ) as load_certificate,
+        patch(
             "custom_components.ha_smg_emh_casa.tls._async_open_tls",
-            new=AsyncMock(return_value=certificate_der),
+            new=AsyncMock(return_value=CERTIFICATE_DER),
         ) as open_tls,
         patch(
             "custom_components.ha_smg_emh_casa.tls.create_pinned_ssl_context",
@@ -133,11 +123,12 @@ async def test_pinned_probe_verifies_in_one_handshake(
         ) as pinned_context,
     ):
         certificate = await async_probe_certificate(
-            "gateway.example.test", certificate_pem
+            "gateway.example.test", CERTIFICATE_PEM
         )
 
-    assert certificate.pem == certificate_pem
-    pinned_context.assert_called_once_with(certificate_pem)
+    assert certificate.pem == CERTIFICATE_PEM
+    pinned_context.assert_called_once_with(CERTIFICATE_PEM)
+    load_certificate.assert_called_once_with(cadata=CERTIFICATE_PEM)
     open_tls.assert_awaited_once()
     context = open_tls.await_args.args[1]
     assert context.verify_mode is ssl.CERT_REQUIRED
@@ -145,21 +136,21 @@ async def test_pinned_probe_verifies_in_one_handshake(
     assert context.verify_flags & ssl.VERIFY_X509_PARTIAL_CHAIN
 
 
-async def test_probe_translates_verification_failure(
-    legacy_certificate: tuple[bytes, str],
-) -> None:
-    """A TLS validity failure must be handled without an ASN.1 decoder."""
-    _, certificate_pem = legacy_certificate
+async def test_probe_translates_verification_failure() -> None:
+    """TLS verification failures should become integration-specific errors."""
     with (
+        patch(
+            "custom_components.ha_smg_emh_casa.tls.ssl.SSLContext.load_verify_locations"
+        ),
         patch(
             "custom_components.ha_smg_emh_casa.tls.asyncio.open_connection",
             new=AsyncMock(
-                side_effect=ssl.SSLCertVerificationError("certificate has expired")
+                side_effect=ssl.SSLCertVerificationError("certificate verify failed")
             ),
         ),
-        pytest.raises(EMHCASATlsVerificationError, match="expired"),
+        pytest.raises(EMHCASATlsVerificationError, match="certificate verify failed"),
     ):
-        await async_probe_certificate("gateway.example.test", certificate_pem)
+        await async_probe_certificate("gateway.example.test", CERTIFICATE_PEM)
 
 
 async def test_probe_rejects_missing_peer_certificate() -> None:
@@ -203,18 +194,22 @@ async def test_trusted_probe_uses_verifying_context() -> None:
     ],
 )
 async def test_httpx_client_tls_modes(
-    legacy_certificate: tuple[bytes, str],
     tls_mode: str,
     verify_mode: ssl.VerifyMode,
     *,
     check_hostname: bool,
 ) -> None:
     """Each HTTPX mode should configure certificate checks and disable redirects."""
-    with patch(
-        "custom_components.ha_smg_emh_casa.tls.httpx.AsyncClient",
-        wraps=httpx.AsyncClient,
-    ) as client_class:
-        client = create_httpx_client(tls_mode, legacy_certificate[1])
+    with (
+        patch(
+            "custom_components.ha_smg_emh_casa.tls.ssl.SSLContext.load_verify_locations"
+        ),
+        patch(
+            "custom_components.ha_smg_emh_casa.tls.httpx.AsyncClient",
+            wraps=httpx.AsyncClient,
+        ) as client_class,
+    ):
+        client = create_httpx_client(tls_mode, CERTIFICATE_PEM)
     try:
         kwargs = client_class.call_args.kwargs
         context = kwargs["verify"]
