@@ -40,7 +40,7 @@ the readings it exposes. It supports UI setup and local network discovery.
 3. Enter or confirm the gateway host, then choose how Home Assistant should
    check its TLS certificate.
 4. If you choose **Trust and remember this gateway certificate**, review the
-   SHA-256 fingerprint and certificate validity dates. Compare the fingerprint
+   SHA-256 fingerprint. Compare it
    with one obtained directly from the gateway if possible, then accept it.
    The trusted-certificate and insecure modes skip this confirmation step.
 5. Enter the username and password for the EMH CASA user portal and choose the
@@ -55,18 +55,14 @@ the readings it exposes. It supports UI setup and local network discovery.
 
 ## TLS certificate checking
 
-Factory certificates with legacy ECDSA algorithm parameters are supported when
-reading certificate validity dates, including on Home Assistant 2026.10. The
-metadata decoder uses Home Assistant's bundled cryptography library. The original
-certificate is preserved for SHA-256 fingerprint comparison and TLS verification.
-
 The integration always connects over HTTPS and offers three choices:
 
 - **Trust and remember this gateway certificate** is the default and is
   intended for a direct connection to a factory gateway or a reverse proxy with
   a self-signed certificate. Home Assistant saves the certificate accepted
   during setup. If it changes, requests stop before credentials are sent and a
-  Repair shows the old and new fingerprints for explicit approval.
+  Repair shows the old and new fingerprints for explicit approval. The existing
+  TLS probe verifies the saved certificate before every update.
 - **Use a certificate trusted by Home Assistant** performs normal certificate
   authority and hostname validation. Choose this for a reverse proxy using a
   publicly trusted certificate, such as a Let's Encrypt certificate. Normal

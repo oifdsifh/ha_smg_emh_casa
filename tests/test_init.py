@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from typing import TYPE_CHECKING
-from unittest.mock import ANY, AsyncMock, patch
+from unittest.mock import ANY, AsyncMock, call, patch
 
 import pytest
 from homeassistant.config_entries import ConfigEntryState
@@ -46,18 +46,13 @@ from .const import MOCK_API_DATA, MOCK_CONFIG, MOCK_GATEWAY_ID, MOCK_METER_ID
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
-NOW = datetime.now(UTC)
 OLD_CERTIFICATE = GatewayCertificate(
     pem="old certificate",
     fingerprint="12" * 32,
-    not_valid_before=NOW - timedelta(days=1),
-    not_valid_after=NOW + timedelta(days=30),
 )
 NEW_CERTIFICATE = GatewayCertificate(
     pem="new certificate",
     fingerprint="34" * 32,
-    not_valid_before=NOW - timedelta(days=1),
-    not_valid_after=NOW + timedelta(days=30),
 )
 
 
@@ -325,7 +320,10 @@ async def test_migration_falls_back_to_pinning_without_credentials(
     assert entry.data[CONF_TLS_MODE] == TLS_MODE_PINNED_CERTIFICATE
     assert entry.data[CONF_TLS_CERTIFICATE] == OLD_CERTIFICATE.pem
     assert entry.data[CONF_TLS_FINGERPRINT] == OLD_CERTIFICATE.fingerprint
-    certificate_probe.assert_awaited_once_with(MOCK_CONFIG[CONF_HOST])
+    assert certificate_probe.await_args_list == [
+        call(MOCK_CONFIG[CONF_HOST]),
+        call(MOCK_CONFIG[CONF_HOST], OLD_CERTIFICATE.pem),
+    ]
 
 
 async def test_migration_upgrades_explicit_http_address(hass: HomeAssistant) -> None:
@@ -386,9 +384,12 @@ async def test_migration_failure_creates_https_repair(hass: HomeAssistant) -> No
     assert entry.minor_version == 1
 
 
+@pytest.mark.parametrize("verification_fails", [False, True])
 async def test_changed_pinned_certificate_creates_fixable_repair(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
+    *,
+    verification_fails: bool,
 ) -> None:
     """A rejected replacement certificate should create an actionable Repair."""
     mock_config_entry.add_to_hass(hass)
@@ -415,8 +416,14 @@ async def test_changed_pinned_certificate_creates_fixable_repair(
         ),
         patch(
             "custom_components.ha_smg_emh_casa.coordinator.async_probe_certificate",
-            new=AsyncMock(return_value=NEW_CERTIFICATE),
-        ),
+            new=AsyncMock(
+                side_effect=(
+                    [EMHCASATlsVerificationError("untrusted"), NEW_CERTIFICATE]
+                    if verification_fails
+                    else [NEW_CERTIFICATE]
+                ),
+            ),
+        ) as probe,
     ):
         assert not await hass.config_entries.async_setup(mock_config_entry.entry_id)
         await hass.async_block_till_done()
@@ -433,6 +440,45 @@ async def test_changed_pinned_certificate_creates_fixable_repair(
     }
     get_data.assert_not_awaited()
     http_client.aclose.assert_awaited_once()
+    expected_probes = [call(MOCK_CONFIG[CONF_HOST], OLD_CERTIFICATE.pem)]
+    if verification_fails:
+        expected_probes.append(call(MOCK_CONFIG[CONF_HOST]))
+    assert probe.await_args_list == expected_probes
+
+
+async def test_migration_rejects_invalid_candidate(hass: HomeAssistant) -> None:
+    """Legacy migration must verify a discovered pin before saving it."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Legacy gateway",
+        data={key: value for key, value in MOCK_CONFIG.items() if key != CONF_TLS_MODE},
+        minor_version=1,
+    )
+    entry.add_to_hass(hass)
+    with (
+        patch(
+            "custom_components.ha_smg_emh_casa.async_test_trusted_certificate",
+            new=AsyncMock(side_effect=EMHCASATlsVerificationError("self-signed")),
+        ),
+        patch(
+            "custom_components.ha_smg_emh_casa.async_probe_certificate",
+            new=AsyncMock(
+                side_effect=[
+                    OLD_CERTIFICATE,
+                    EMHCASATlsVerificationError("certificate has expired"),
+                ]
+            ),
+        ),
+    ):
+        assert not await async_migrate_entry(hass, entry)
+    assert CONF_TLS_CERTIFICATE not in entry.data
+    assert entry.minor_version == 1
+    assert (
+        ir.async_get(hass).async_get_issue(
+            DOMAIN, f"{ISSUE_HTTPS_MIGRATION_FAILED}_{entry.entry_id}"
+        )
+        is not None
+    )
 
 
 async def test_unchanged_pinned_certificate_allows_authenticated_poll(
@@ -466,20 +512,20 @@ async def test_unchanged_pinned_certificate_allows_authenticated_poll(
         assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
         await hass.async_block_till_done()
 
-    probe.assert_awaited_once_with(MOCK_CONFIG[CONF_HOST])
+    probe.assert_awaited_once_with(MOCK_CONFIG[CONF_HOST], OLD_CERTIFICATE.pem)
     mock_async_get_data.assert_awaited_once()
 
     assert await hass.config_entries.async_unload(mock_config_entry.entry_id)
     http_client.aclose.assert_awaited_once()
 
 
-async def test_unreadable_pinned_certificate_blocks_authenticated_poll(
+async def test_pinned_probe_connection_failure_blocks_authenticated_poll(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
     mock_async_get_data: AsyncMock,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Metadata failures should trigger a clean retry without sending credentials."""
+    """Probe connection failures should retry without sending credentials."""
     mock_config_entry.add_to_hass(hass)
     hass.config_entries.async_update_entry(
         mock_config_entry,
@@ -498,30 +544,28 @@ async def test_unreadable_pinned_certificate_blocks_authenticated_poll(
             return_value=http_client,
         ),
         patch(
-            "custom_components.ha_smg_emh_casa.tls._async_open_tls",
-            new=AsyncMock(return_value=b"invalid certificate"),
+            "custom_components.ha_smg_emh_casa.coordinator.async_probe_certificate",
+            new=AsyncMock(side_effect=EMHCASATlsConnectionError("offline")),
         ),
     ):
         assert not await hass.config_entries.async_setup(mock_config_entry.entry_id)
         await hass.async_block_till_done()
 
     assert mock_config_entry.state is ConfigEntryState.SETUP_RETRY
-    assert "Unable to read the gateway TLS certificate validity dates" in caplog.text
+    assert "offline" in caplog.text
     assert "Unexpected error fetching" not in caplog.text
     mock_async_get_data.assert_not_awaited()
     http_client.aclose.assert_awaited_once()
 
 
-async def test_expired_unchanged_pinned_certificate_creates_nonfixable_repair(
+async def test_invalid_unchanged_pinned_certificate_creates_nonfixable_repair(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
 ) -> None:
-    """An expired remembered certificate must be renewed, not reaccepted."""
+    """An invalid remembered certificate must fail verification before credentials."""
     expired = GatewayCertificate(
         pem=OLD_CERTIFICATE.pem,
         fingerprint=OLD_CERTIFICATE.fingerprint,
-        not_valid_before=NOW - timedelta(days=30),
-        not_valid_after=NOW - timedelta(days=1),
     )
     mock_config_entry.add_to_hass(hass)
     hass.config_entries.async_update_entry(
@@ -547,7 +591,12 @@ async def test_expired_unchanged_pinned_certificate_creates_nonfixable_repair(
         ),
         patch(
             "custom_components.ha_smg_emh_casa.coordinator.async_probe_certificate",
-            new=AsyncMock(return_value=expired),
+            new=AsyncMock(
+                side_effect=[
+                    EMHCASATlsVerificationError("certificate has expired"),
+                    expired,
+                ]
+            ),
         ),
     ):
         assert not await hass.config_entries.async_setup(mock_config_entry.entry_id)
@@ -560,7 +609,10 @@ async def test_expired_unchanged_pinned_certificate_creates_nonfixable_repair(
     assert issue is not None
     assert not issue.is_fixable
     assert issue.translation_placeholders is not None
-    assert issue.translation_placeholders["reason"] == "expired"
+    assert issue.translation_placeholders == {
+        "entry_title": mock_config_entry.title,
+        "fingerprint": OLD_CERTIFICATE.formatted_fingerprint,
+    }
     assert issue.data == {"entry_id": mock_config_entry.entry_id}
     get_data.assert_not_awaited()
     http_client.aclose.assert_awaited_once()

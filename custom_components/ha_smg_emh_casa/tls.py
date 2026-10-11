@@ -8,12 +8,9 @@ import ipaddress
 import ssl
 from contextlib import suppress
 from dataclasses import dataclass
-from datetime import UTC, datetime
-from typing import Annotated
 from urllib.parse import urlsplit
 
 import httpx
-from cryptography.hazmat import asn1
 from homeassistant.util.ssl import (
     SSL_ALPN_HTTP11,
     client_context,
@@ -29,39 +26,6 @@ from .const import (
 TLS_TIMEOUT = 20
 HTTPS_PORT = 443
 IPV6_MINIMUM_COLONS = 2
-
-
-@asn1.sequence
-class _CertificateValidity:
-    """X.509 validity dates, accepting both UTC and generalized time."""
-
-    not_before: asn1.UTCTime | asn1.GeneralizedTime
-    not_after: asn1.UTCTime | asn1.GeneralizedTime
-
-
-@asn1.sequence
-class _TBSCertificateMetadata:
-    """X.509 certificate structure with uninterpreted algorithm parameters."""
-
-    version: Annotated[int, asn1.Explicit(0), asn1.Default(0)]
-    serial_number: asn1.TLV
-    signature: asn1.TLV
-    issuer: asn1.TLV
-    validity: _CertificateValidity
-    subject: asn1.TLV
-    subject_public_key_info: asn1.TLV
-    issuer_unique_id: Annotated[asn1.BitString | None, asn1.Implicit(1)]
-    subject_unique_id: Annotated[asn1.BitString | None, asn1.Implicit(2)]
-    extensions: Annotated[list[asn1.TLV] | None, asn1.Explicit(3)]
-
-
-@asn1.sequence
-class _CertificateMetadata:
-    """Certificate metadata for display, with verification left to OpenSSL."""
-
-    tbs_certificate: _TBSCertificateMetadata
-    signature_algorithm: asn1.TLV
-    signature_value: asn1.BitString
 
 
 class EMHCASATlsError(Exception):
@@ -84,23 +48,12 @@ class EMHCASATlsVerificationError(EMHCASATlsError):
     """The TLS certificate could not be verified."""
 
 
-class EMHCASACertificateValidityError(EMHCASATlsError):
-    """The presented TLS certificate is not currently valid."""
-
-    def __init__(self, reason: str) -> None:
-        """Initialize the validity error."""
-        super().__init__(reason)
-        self.reason = reason
-
-
 @dataclass(frozen=True, slots=True)
 class GatewayCertificate:
     """Certificate details collected without an HTTP request."""
 
     pem: str
     fingerprint: str
-    not_valid_before: datetime
-    not_valid_after: datetime
 
     @property
     def formatted_fingerprint(self) -> str:
@@ -109,16 +62,6 @@ class GatewayCertificate:
             self.fingerprint[index : index + 2].upper()
             for index in range(0, len(self.fingerprint), 2)
         )
-
-    @property
-    def validity_error(self) -> str | None:
-        """Return a translation key when the certificate is not currently valid."""
-        now = datetime.now(UTC)
-        if now < self.not_valid_before:
-            return "certificate_not_yet_valid"
-        if now > self.not_valid_after:
-            return "certificate_expired"
-        return None
 
 
 def normalize_host(host: str) -> str:
@@ -185,28 +128,10 @@ def _split_authority(authority: str) -> tuple[str, int]:
 
 
 def _certificate_from_der(certificate_der: bytes) -> GatewayCertificate:
-    """Build certificate metadata from a DER encoded certificate."""
-    # Some factory certificates encode NULL ECDSA algorithm parameters, which
-    # cryptography >= 49 rejects. Read only metadata here; OpenSSL still verifies
-    # the original certificate in the pinned SSL context, without rewriting it.
-    try:
-        certificate = asn1.decode_der(_CertificateMetadata, certificate_der)
-        validity = certificate.tbs_certificate.validity
-        not_valid_before = validity.not_before.as_datetime()
-        not_valid_after = validity.not_after.as_datetime()
-    except (ValueError, TypeError, OverflowError) as exception:
-        msg = "Unable to read the gateway TLS certificate validity dates"
-        raise EMHCASATlsVerificationError(msg) from exception
-
-    if not_valid_after < not_valid_before:
-        msg = "Invalid gateway TLS certificate validity dates"
-        raise EMHCASATlsVerificationError(msg)
-
+    """Preserve the peer certificate for pinning without decoding its fields."""
     return GatewayCertificate(
         pem=ssl.DER_cert_to_PEM_cert(certificate_der),
         fingerprint=hashlib.sha256(certificate_der).hexdigest(),
-        not_valid_before=not_valid_before,
-        not_valid_after=not_valid_after,
     )
 
 
@@ -243,9 +168,16 @@ async def _async_open_tls(
                 await writer.wait_closed()
 
 
-async def async_probe_certificate(host: str) -> GatewayCertificate:
-    """Read the presented certificate without sending an HTTP request."""
-    context = create_no_verify_ssl_context(alpn_protocols=SSL_ALPN_HTTP11)
+async def async_probe_certificate(
+    host: str,
+    certificate_pem: str | None = None,
+) -> GatewayCertificate:
+    """Read the peer certificate, verifying against a supplied pin if present."""
+    context = (
+        create_pinned_ssl_context(certificate_pem)
+        if certificate_pem is not None
+        else create_no_verify_ssl_context(alpn_protocols=SSL_ALPN_HTTP11)
+    )
     certificate_der = await _async_open_tls(host, context)
     return _certificate_from_der(certificate_der)
 
@@ -263,7 +195,11 @@ def create_pinned_ssl_context(certificate_pem: str) -> ssl.SSLContext:
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     context.check_hostname = False
     context.verify_mode = ssl.CERT_REQUIRED
-    context.load_verify_locations(cadata=certificate_pem)
+    try:
+        context.load_verify_locations(cadata=certificate_pem)
+    except (ssl.SSLError, ValueError) as exception:
+        msg = "The stored gateway TLS certificate could not be loaded"
+        raise EMHCASATlsVerificationError(msg) from exception
     context.verify_flags |= ssl.VERIFY_X509_PARTIAL_CHAIN
     if SSL_ALPN_HTTP11 is not None:
         context.set_alpn_protocols(SSL_ALPN_HTTP11)

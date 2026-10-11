@@ -1,9 +1,10 @@
 # Certificate fixtures
 
-These synthetic certificates use `gateway.example.test`; none comes from a real
-gateway. `legacy_certificate.pem` has ECDSA-with-SHA256 NULL parameters and was
-re-signed after adding them. The other fixtures modify its validity or version
-without re-signing, to test metadata decoding behind a mocked TLS handshake.
-Private keys are discarded. Static fixtures also work with the older cryptography
-version at the supported Home Assistant floor, whose ASN.1 encoder cannot emit
-raw TLV fields.
+`legacy_certificate.pem` is a synthetic certificate for `gateway.example.test`;
+it does not come from a real gateway. It has ECDSA-with-SHA256 NULL parameters
+and was re-signed after adding them. The private key was discarded.
+
+The fixture tests that discovery preserves the original bytes and fingerprint
+without parsing certificate fields. Other tests cover the integration's SSL
+verification settings and handling of verification failures during setup,
+polling, and repairs.

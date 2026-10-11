@@ -10,7 +10,7 @@
             },
             "confirm_certificate": {
                 "title": "Trust this gateway certificate?",
-                "description": "The gateway at `{host}` presented the certificate below. Home Assistant will remember it and stop connecting if it changes. If possible, compare the fingerprint with a value obtained directly from the gateway.\n\n**SHA-256 fingerprint:** `{fingerprint}`\n\n**Valid from:** {valid_from}\n\n**Valid until:** {valid_until}"
+                "description": "The gateway at `{host}` presented the certificate below. Home Assistant will remember it and stop connecting if it changes. If possible, compare the fingerprint with a value obtained directly from the gateway.\n\n**SHA-256 fingerprint:** `{fingerprint}`"
             },
             "credentials": {
                 "description": "Enter the username and password for the EMH CASA user portal.",
@@ -32,15 +32,13 @@
             },
             "reauth_confirm_certificate": {
                 "title": "Trust the new gateway certificate?",
-                "description": "The gateway at `{host}` presented a certificate that is not currently remembered. Confirm it before Home Assistant sends the updated login details.\n\n**SHA-256 fingerprint:** `{fingerprint}`\n\n**Valid from:** {valid_from}\n\n**Valid until:** {valid_until}"
+                "description": "The gateway at `{host}` presented a certificate that is not currently remembered. Confirm it before Home Assistant sends the updated login details.\n\n**SHA-256 fingerprint:** `{fingerprint}`"
             }
         },
         "error": {
             "auth": "The username or password is incorrect.",
             "certificate_changed_during_setup": "The certificate changed while it was being confirmed. Review the new fingerprint before continuing.",
-            "certificate_expired": "The gateway certificate has expired and cannot be trusted.",
-            "certificate_not_yet_valid": "The gateway certificate is not valid yet and cannot be trusted.",
-            "certificate_untrusted": "The certificate is not trusted or does not match the gateway hostname.",
+            "certificate_untrusted": "The gateway certificate could not be verified.",
             "connection": "Unable to establish a secure connection to the gateway.",
             "http_not_allowed": "HTTP is not supported. Enter the hostname or an HTTPS address.",
             "invalid_host": "Enter only a hostname, IP address, or HTTPS address without a path, query, or login details.",
@@ -67,15 +65,13 @@
             },
             "confirm_certificate": {
                 "title": "Trust the new gateway certificate?",
-                "description": "The gateway at `{host}` presented a new certificate. Confirm it before Home Assistant sends login details.\n\n**SHA-256 fingerprint:** `{fingerprint}`\n\n**Valid from:** {valid_from}\n\n**Valid until:** {valid_until}"
+                "description": "The gateway at `{host}` presented a new certificate. Confirm it before Home Assistant sends login details.\n\n**SHA-256 fingerprint:** `{fingerprint}`"
             }
         },
         "error": {
             "auth": "The username or password is incorrect.",
             "certificate_changed_during_setup": "The certificate changed while it was being confirmed. Review the new fingerprint before continuing.",
-            "certificate_expired": "The gateway certificate has expired and cannot be trusted.",
-            "certificate_not_yet_valid": "The gateway certificate is not valid yet and cannot be trusted.",
-            "certificate_untrusted": "The certificate is not trusted or does not match the gateway hostname.",
+            "certificate_untrusted": "The gateway certificate could not be verified.",
             "connection": "Unable to establish a secure connection to the gateway.",
             "http_not_allowed": "HTTP is not supported. Enter the hostname or an HTTPS address.",
             "invalid_host": "Enter only a hostname, IP address, or HTTPS address without a path, query, or login details.",
@@ -106,17 +102,16 @@
                 },
                 "error": {
                     "certificate_changed_again": "The certificate changed again and was not saved. Reopen the repair after the gateway certificate is stable.",
-                    "certificate_expired": "The replacement certificate has expired and cannot be accepted.",
-                    "certificate_not_yet_valid": "The replacement certificate is not valid yet and cannot be accepted.",
                     "connection": "Home Assistant could not verify the gateway identity using the replacement certificate.",
                     "mode_changed": "The entry no longer uses certificate pinning.",
-                    "wrong_gateway": "The Digest authentication identity belongs to a different gateway."
+                    "wrong_gateway": "The Digest authentication identity belongs to a different gateway.",
+                    "certificate_untrusted": "The replacement certificate could not be verified and was not saved."
                 }
             }
         },
         "certificate_invalid": {
             "title": "The EMH CASA gateway certificate is not valid",
-            "description": "Home Assistant stopped connecting to **{entry_title}** because the remembered certificate is {reason}.\n\n**Fingerprint:** `{fingerprint}`\n\n**Valid from:** {valid_from}\n\n**Valid until:** {valid_until}\n\nRenew or replace the certificate, or choose another certificate-checking method in the integration options."
+            "description": "Home Assistant stopped connecting to **{entry_title}** because the gateway certificate could not be verified.\n\n**Fingerprint:** `{fingerprint}`\n\nCheck or replace the gateway certificate, or review the certificate-checking method in the integration options."
         },
         "https_migration_failed": {
             "title": "EMH CASA requires an HTTPS address",

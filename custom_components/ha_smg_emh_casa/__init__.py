@@ -76,11 +76,12 @@ async def async_migrate_entry(
         host, upgraded_http = normalize_legacy_host(values[CONF_HOST])
         try:
             await async_test_trusted_certificate(host)
-        except EMHCASATlsVerificationError as verification_error:
+        except EMHCASATlsVerificationError:
             certificate = await async_probe_certificate(host)
-            if reason := certificate.validity_error:
-                msg = f"Cannot pin a certificate that is {reason}"
-                raise EMHCASATlsError(msg) from verification_error
+            verified = await async_probe_certificate(host, certificate.pem)
+            if verified.fingerprint != certificate.fingerprint:
+                msg = "The gateway certificate changed during migration"
+                raise EMHCASATlsVerificationError(msg) from None
             tls_values = {
                 CONF_TLS_MODE: TLS_MODE_PINNED_CERTIFICATE,
                 CONF_TLS_CERTIFICATE: certificate.pem,

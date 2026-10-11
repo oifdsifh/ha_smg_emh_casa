@@ -15,6 +15,7 @@ from .api import (
     EMHCASAApiClientError,
 )
 from .const import (
+    CONF_TLS_CERTIFICATE,
     CONF_TLS_FINGERPRINT,
     CONF_TLS_MODE,
     DOMAIN,
@@ -22,7 +23,12 @@ from .const import (
     ISSUE_CERTIFICATE_INVALID,
     TLS_MODE_PINNED_CERTIFICATE,
 )
-from .tls import EMHCASATlsError, GatewayCertificate, async_probe_certificate
+from .tls import (
+    EMHCASATlsError,
+    EMHCASATlsVerificationError,
+    GatewayCertificate,
+    async_probe_certificate,
+)
 
 if TYPE_CHECKING:
     from .data import EMHCASAConfigEntry
@@ -54,7 +60,12 @@ class EMHCASADataUpdateCoordinator(DataUpdateCoordinator):
             return
 
         try:
-            certificate = await async_probe_certificate(values[CONF_HOST])
+            certificate = await async_probe_certificate(
+                values[CONF_HOST], values[CONF_TLS_CERTIFICATE]
+            )
+        except EMHCASATlsVerificationError as exception:
+            await self._async_create_certificate_issue()
+            raise UpdateFailed(exception) from exception
         except EMHCASATlsError as exception:
             raise UpdateFailed(exception) from exception
 
@@ -64,29 +75,24 @@ class EMHCASADataUpdateCoordinator(DataUpdateCoordinator):
             msg = "The gateway certificate changed"
             raise UpdateFailed(msg)
 
-        if validity_error := certificate.validity_error:
-            self._create_invalid_certificate_issue(certificate, validity_error)
-            msg = f"The gateway certificate is {validity_error}"
-            raise UpdateFailed(msg)
-
     async def _async_create_certificate_issue(self) -> None:
         """Create a specific repair issue for a rejected pinned certificate."""
         values = self.config_entry.data | self.config_entry.options
         if values.get(CONF_TLS_MODE) != TLS_MODE_PINNED_CERTIFICATE:
             return
 
+        old_fingerprint = values.get(CONF_TLS_FINGERPRINT)
         try:
             certificate = await async_probe_certificate(values[CONF_HOST])
         except EMHCASATlsError:
+            self._create_invalid_certificate_issue(old_fingerprint)
             return
 
-        old_fingerprint = values.get(CONF_TLS_FINGERPRINT)
         if old_fingerprint != certificate.fingerprint:
             self._create_changed_certificate_issue(certificate, old_fingerprint)
             return
 
-        if validity_error := certificate.validity_error:
-            self._create_invalid_certificate_issue(certificate, validity_error)
+        self._create_invalid_certificate_issue(certificate.fingerprint)
 
     def _create_changed_certificate_issue(
         self,
@@ -94,6 +100,11 @@ class EMHCASADataUpdateCoordinator(DataUpdateCoordinator):
         old_fingerprint: object,
     ) -> None:
         """Create a fixable issue for a changed pinned certificate."""
+        ir.async_delete_issue(
+            self.hass,
+            DOMAIN,
+            f"{ISSUE_CERTIFICATE_INVALID}_{self.config_entry.entry_id}",
+        )
         ir.async_create_issue(
             self.hass,
             DOMAIN,
@@ -115,11 +126,14 @@ class EMHCASADataUpdateCoordinator(DataUpdateCoordinator):
 
     def _create_invalid_certificate_issue(
         self,
-        certificate: GatewayCertificate,
-        validity_error: str,
+        fingerprint: object,
     ) -> None:
         """Create a non-fixable issue for an invalid remembered certificate."""
-        reason = validity_error.removeprefix("certificate_").replace("_", " ")
+        ir.async_delete_issue(
+            self.hass,
+            DOMAIN,
+            f"{ISSUE_CERTIFICATE_CHANGED}_{self.config_entry.entry_id}",
+        )
         ir.async_create_issue(
             self.hass,
             DOMAIN,
@@ -130,10 +144,7 @@ class EMHCASADataUpdateCoordinator(DataUpdateCoordinator):
             translation_key=ISSUE_CERTIFICATE_INVALID,
             translation_placeholders={
                 "entry_title": self.config_entry.title,
-                "fingerprint": certificate.formatted_fingerprint,
-                "reason": reason,
-                "valid_from": certificate.not_valid_before.isoformat(),
-                "valid_until": certificate.not_valid_after.isoformat(),
+                "fingerprint": _format_fingerprint(fingerprint),
             },
             data={"entry_id": self.config_entry.entry_id},
         )

@@ -13,7 +13,11 @@ from homeassistant.components.repairs import (
 from homeassistant.const import CONF_HOST
 from homeassistant.helpers import issue_registry as ir
 
-from .api import EMHCASAApiClientError, EMHCASAClient
+from .api import (
+    EMHCASAApiClientCertificateError,
+    EMHCASAApiClientError,
+    EMHCASAClient,
+)
 from .const import (
     CONF_GATEWAY_ID,
     CONF_TLS_CERTIFICATE,
@@ -135,13 +139,14 @@ class CertificateChangedRepairFlow(RepairsFlow):
         ):
             error_key = "certificate_changed_again"
             raise _RepairValidationError(error_key)
-        if first.validity_error:
-            raise _RepairValidationError(first.validity_error)
-
-        http_client = create_httpx_client(
-            TLS_MODE_PINNED_CERTIFICATE,
-            first.pem,
-        )
+        try:
+            http_client = create_httpx_client(
+                TLS_MODE_PINNED_CERTIFICATE,
+                first.pem,
+            )
+        except EMHCASATlsError as exception:
+            error_key = "certificate_untrusted"
+            raise _RepairValidationError(error_key) from exception
         client = EMHCASAClient(
             host=host,
             username="",
@@ -150,6 +155,9 @@ class CertificateChangedRepairFlow(RepairsFlow):
         )
         try:
             gateway_id = await client.async_get_gateway_id()
+        except EMHCASAApiClientCertificateError as exception:
+            error_key = "certificate_untrusted"
+            raise _RepairValidationError(error_key) from exception
         except EMHCASAApiClientError as exception:
             error_key = "connection"
             raise _RepairValidationError(error_key) from exception

@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, patch
 
 from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.ha_smg_emh_casa.api import EMHCASAApiClientCertificateError
 from custom_components.ha_smg_emh_casa.const import (
     CONF_GATEWAY_ID,
     CONF_TLS_CERTIFICATE,
@@ -33,19 +33,14 @@ from .const import MOCK_CONFIG, MOCK_GATEWAY_ID
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
-NOW = datetime.now(UTC)
 EXPECTED_STABILITY_PROBES = 2
 OLD_CERTIFICATE = GatewayCertificate(
     pem="old certificate",
     fingerprint="12" * 32,
-    not_valid_before=NOW - timedelta(days=1),
-    not_valid_after=NOW + timedelta(days=30),
 )
 NEW_CERTIFICATE = GatewayCertificate(
     pem="new certificate",
     fingerprint="34" * 32,
-    not_valid_before=NOW - timedelta(days=1),
-    not_valid_after=NOW + timedelta(days=30),
 )
 
 
@@ -135,8 +130,6 @@ async def test_repair_rejects_unstable_certificate(hass: HomeAssistant) -> None:
     another = GatewayCertificate(
         pem="another certificate",
         fingerprint="56" * 32,
-        not_valid_before=NOW - timedelta(days=1),
-        not_valid_after=NOW + timedelta(days=30),
     )
     flow = CertificateChangedRepairFlow(
         entry,
@@ -188,14 +181,12 @@ async def test_repair_rejects_different_gateway(hass: HomeAssistant) -> None:
     assert entry.data[CONF_TLS_FINGERPRINT] == OLD_CERTIFICATE.fingerprint
 
 
-async def test_repair_rejects_expired_replacement(hass: HomeAssistant) -> None:
-    """An expired stable replacement certificate cannot be reaccepted."""
+async def test_repair_rejects_invalid_replacement(hass: HomeAssistant) -> None:
+    """TLS verification must reject an invalid replacement without changing the pin."""
     entry = _pinned_entry(hass)
     expired = GatewayCertificate(
         pem=NEW_CERTIFICATE.pem,
         fingerprint=NEW_CERTIFICATE.fingerprint,
-        not_valid_before=NOW - timedelta(days=30),
-        not_valid_after=NOW - timedelta(days=1),
     )
     flow = CertificateChangedRepairFlow(
         entry,
@@ -204,14 +195,28 @@ async def test_repair_rejects_expired_replacement(hass: HomeAssistant) -> None:
     )
     flow.hass = hass
 
-    with patch(
-        "custom_components.ha_smg_emh_casa.repairs.async_probe_certificate",
-        new=AsyncMock(return_value=expired),
+    http_client = AsyncMock()
+    with (
+        patch(
+            "custom_components.ha_smg_emh_casa.repairs.async_probe_certificate",
+            new=AsyncMock(return_value=expired),
+        ),
+        patch(
+            "custom_components.ha_smg_emh_casa.repairs.create_httpx_client",
+            return_value=http_client,
+        ),
+        patch(
+            "custom_components.ha_smg_emh_casa.repairs.EMHCASAClient.async_get_gateway_id",
+            new=AsyncMock(
+                side_effect=EMHCASAApiClientCertificateError("certificate has expired")
+            ),
+        ),
     ):
         result: Any = await flow.async_step_confirm({})
 
     assert result["type"] is FlowResultType.FORM
-    assert result["errors"] == {"base": "certificate_expired"}
+    assert result["errors"] == {"base": "certificate_untrusted"}
+    http_client.aclose.assert_awaited_once()
     assert entry.data[CONF_TLS_FINGERPRINT] == OLD_CERTIFICATE.fingerprint
 
 

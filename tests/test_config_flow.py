@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
 from ipaddress import IPv4Address
 from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import AsyncMock, patch
@@ -41,21 +40,16 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
     from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-NOW = datetime.now(UTC)
 EXPECTED_PIN_PROBES = 2
 pytestmark = pytest.mark.usefixtures("mock_async_get_data")
 
 MOCK_CERTIFICATE = GatewayCertificate(
     pem="mock gateway certificate",
     fingerprint="12" * 32,
-    not_valid_before=NOW - timedelta(days=1),
-    not_valid_after=NOW + timedelta(days=365),
 )
 REPLACEMENT_CERTIFICATE = GatewayCertificate(
     pem="replacement gateway certificate",
     fingerprint="34" * 32,
-    not_valid_before=NOW - timedelta(days=1),
-    not_valid_after=NOW + timedelta(days=365),
 )
 
 ZEROCONF_DISCOVERY = ZeroconfServiceInfo(
@@ -226,24 +220,39 @@ async def test_certificate_change_during_setup_requires_new_confirmation(
     )
 
 
-async def test_expired_certificate_is_rejected_before_credentials(
+async def test_invalid_certificate_is_rejected_during_connection_validation(
     hass: HomeAssistant,
 ) -> None:
-    """An expired certificate cannot be accepted as a new pin."""
-    expired = GatewayCertificate(
-        pem="expired",
-        fingerprint="56" * 32,
-        not_valid_before=NOW - timedelta(days=10),
-        not_valid_after=NOW - timedelta(days=1),
-    )
-    with patch(
-        "custom_components.ha_smg_emh_casa.config_flow.async_probe_certificate",
-        new=AsyncMock(return_value=expired),
+    """An approved fingerprint must not bypass TLS certificate verification."""
+    with (
+        patch(
+            "custom_components.ha_smg_emh_casa.config_flow.async_probe_certificate",
+            new=AsyncMock(return_value=MOCK_CERTIFICATE),
+        ),
+        patch(
+            "custom_components.ha_smg_emh_casa.config_flow.async_validate_connection",
+            new=AsyncMock(
+                side_effect=EMHCASAApiClientCertificateError("certificate has expired")
+            ),
+        ),
     ):
-        _, result = await _start_user_flow(hass, TLS_MODE_PINNED_CERTIFICATE)
+        flow_id, result = await _start_user_flow(hass, TLS_MODE_PINNED_CERTIFICATE)
+        assert result["step_id"] == "confirm_certificate"
+        assert set(result["description_placeholders"]) == {"host", "fingerprint"}
+        result = await hass.config_entries.flow.async_configure(flow_id, {})
+        assert result["step_id"] == "credentials"
+        result = await hass.config_entries.flow.async_configure(
+            flow_id,
+            {
+                CONF_USERNAME: MOCK_CONFIG[CONF_USERNAME],
+                CONF_PASSWORD: MOCK_CONFIG[CONF_PASSWORD],
+                CONF_SCAN_INTERVAL: MOCK_CONFIG[CONF_SCAN_INTERVAL],
+            },
+        )
 
-    assert result["step_id"] == "user"
-    assert result["errors"] == {"base": "certificate_expired"}
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": "certificate_untrusted"}
+    assert not hass.config_entries.async_entries(DOMAIN)
 
 
 @pytest.mark.parametrize(

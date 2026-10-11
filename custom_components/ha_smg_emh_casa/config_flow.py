@@ -38,11 +38,11 @@ from .const import (
     TLS_MODES,
 )
 from .tls import (
-    EMHCASACertificateValidityError,
     EMHCASAHttpNotAllowedError,
     EMHCASAInvalidHostError,
     EMHCASATlsConnectionError,
     EMHCASATlsError,
+    EMHCASATlsVerificationError,
     GatewayCertificate,
     async_probe_certificate,
     create_httpx_client,
@@ -81,12 +81,6 @@ async def async_validate_connection(
         await client.async_close()
 
 
-def _raise_for_certificate_validity(certificate: GatewayCertificate) -> None:
-    """Reject a certificate that is not currently valid."""
-    if reason := certificate.validity_error:
-        raise EMHCASACertificateValidityError(reason)
-
-
 def _certificate_data(certificate: GatewayCertificate) -> dict[str, str]:
     """Return config-entry values for a pinned certificate."""
     return {
@@ -111,11 +105,11 @@ def _error_key(exception: EMHCASAApiClientError | EMHCASATlsError) -> str:
     if isinstance(exception, EMHCASAApiClientAuthenticationError):
         LOGGER.warning(exception)
         error_key = "auth"
-    elif isinstance(exception, EMHCASAApiClientCertificateError):
+    elif isinstance(
+        exception, (EMHCASAApiClientCertificateError, EMHCASATlsVerificationError)
+    ):
         LOGGER.warning(exception)
         error_key = "certificate_untrusted"
-    elif isinstance(exception, EMHCASACertificateValidityError):
-        error_key = exception.reason
     elif isinstance(exception, EMHCASAHttpNotAllowedError):
         error_key = "http_not_allowed"
     elif isinstance(exception, EMHCASAInvalidHostError):
@@ -178,7 +172,6 @@ class EMHCASAFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                 }
                 if tls_mode == TLS_MODE_PINNED_CERTIFICATE:
                     certificate = await async_probe_certificate(host)
-                    _raise_for_certificate_validity(certificate)
                     self._pending_certificate = certificate
                     return await self.async_step_confirm_certificate()
                 return await self.async_step_credentials()
@@ -231,7 +224,6 @@ class EMHCASAFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                 current = await async_probe_certificate(
                     self._connection_settings[CONF_HOST]
                 )
-                _raise_for_certificate_validity(current)
                 if current.fingerprint != certificate.fingerprint:
                     self._pending_certificate = current
                     certificate = current
@@ -331,7 +323,6 @@ class EMHCASAFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             try:
                 current = await async_probe_certificate(pending[CONF_HOST])
-                _raise_for_certificate_validity(current)
                 if current.fingerprint != certificate.fingerprint:
                     self._pending_certificate = current
                     certificate = current
@@ -361,7 +352,6 @@ class EMHCASAFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             return prepared, None, False
 
         certificate = await async_probe_certificate(prepared[CONF_HOST])
-        _raise_for_certificate_validity(certificate)
         entry = self._get_reauth_entry()
         values = entry.data | entry.options
         unchanged = (
@@ -477,8 +467,6 @@ class EMHCASAFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             description_placeholders={
                 "host": host,
                 "fingerprint": certificate.formatted_fingerprint,
-                "valid_from": certificate.not_valid_before.isoformat(),
-                "valid_until": certificate.not_valid_after.isoformat(),
             },
             errors=errors,
         )
@@ -535,7 +523,6 @@ class EMHCASAOptionsFlowHandler(config_entries.OptionsFlowWithReload):
         if user_input is not None:
             try:
                 current = await async_probe_certificate(pending[CONF_HOST])
-                _raise_for_certificate_validity(current)
                 if current.fingerprint != certificate.fingerprint:
                     self._pending_certificate = current
                     certificate = current
@@ -553,8 +540,6 @@ class EMHCASAOptionsFlowHandler(config_entries.OptionsFlowWithReload):
             description_placeholders={
                 "host": pending[CONF_HOST],
                 "fingerprint": certificate.formatted_fingerprint,
-                "valid_from": certificate.not_valid_before.isoformat(),
-                "valid_until": certificate.not_valid_after.isoformat(),
             },
             errors=errors,
         )
@@ -570,7 +555,6 @@ class EMHCASAOptionsFlowHandler(config_entries.OptionsFlowWithReload):
             return prepared, None, False
 
         certificate = await async_probe_certificate(prepared[CONF_HOST])
-        _raise_for_certificate_validity(certificate)
         values = self._config_entry.data | self._config_entry.options
         unchanged = (
             prepared[CONF_HOST] == values[CONF_HOST]
