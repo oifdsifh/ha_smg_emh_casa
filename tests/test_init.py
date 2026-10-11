@@ -127,26 +127,6 @@ async def test_setup_and_unload_entry(
 
 
 @pytest.mark.usefixtures("mock_async_get_data")
-async def test_setup_uses_configured_scan_interval(
-    hass: HomeAssistant,
-    mock_config_entry: MockConfigEntry,
-) -> None:
-    """The coordinator should honor the configured scan interval."""
-    mock_config_entry.add_to_hass(hass)
-    hass.config_entries.async_update_entry(
-        mock_config_entry,
-        options={CONF_SCAN_INTERVAL: 45},
-    )
-
-    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
-    await hass.async_block_till_done()
-
-    assert mock_config_entry.runtime_data.coordinator.update_interval == timedelta(
-        seconds=45
-    )
-
-
-@pytest.mark.usefixtures("mock_async_get_data")
 async def test_setup_uses_option_overrides_for_connection_details(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,

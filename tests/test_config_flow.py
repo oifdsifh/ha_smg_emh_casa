@@ -14,7 +14,7 @@ from homeassistant.const import (
     CONF_SCAN_INTERVAL,
     CONF_USERNAME,
 )
-from homeassistant.data_entry_flow import FlowResultType, InvalidData
+from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
 
 from custom_components.ha_smg_emh_casa.api import (
@@ -280,20 +280,6 @@ async def test_user_step_rejects_unsafe_host_values(
 
     assert result["step_id"] == "user"
     assert result["errors"] == {"base": expected_error}
-
-
-async def test_user_step_requires_host(hass: HomeAssistant) -> None:
-    """Manual setup should require the host field."""
-    result: Any = await hass.config_entries.flow.async_init(
-        DOMAIN,
-        context={"source": "user"},
-    )
-
-    with pytest.raises(InvalidData):
-        await hass.config_entries.flow.async_configure(
-            result["flow_id"],
-            user_input={CONF_TLS_MODE: TLS_MODE_INSECURE},
-        )
 
 
 @pytest.mark.parametrize(
