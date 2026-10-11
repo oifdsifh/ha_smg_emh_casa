@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import ssl
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -22,6 +23,7 @@ from custom_components.ha_smg_emh_casa.const import (
 from custom_components.ha_smg_emh_casa.tls import (
     EMHCASAHttpNotAllowedError,
     EMHCASAInvalidHostError,
+    EMHCASATlsVerificationError,
     GatewayCertificate,
     async_probe_certificate,
     async_test_trusted_certificate,
@@ -33,23 +35,33 @@ from custom_components.ha_smg_emh_casa.tls import (
 )
 
 TEST_HTTPS_PORT = 8443
+CERTIFICATE_NOT_BEFORE = datetime(2025, 1, 1, tzinfo=UTC)
+CERTIFICATE_NOT_AFTER = datetime(2045, 1, 1, tzinfo=UTC)
+FIXTURES = Path(__file__).parent / "fixtures"
 
 
-def _self_signed_certificate() -> tuple[bytes, str]:
-    """Create a short-lived self-signed gateway certificate."""
+def _fixture_certificate(name: str) -> tuple[bytes, str]:
+    """Read synthetic certificate bytes without re-encoding their contents."""
+    pem = (FIXTURES / name).read_text()
+    return ssl.PEM_cert_to_DER_cert(pem), pem
+
+
+def _self_signed_certificate(*, legacy_parameters: bool = False) -> tuple[bytes, str]:
+    """Return a synthetic legacy certificate or generate a standard one."""
+    if legacy_parameters:
+        return _fixture_certificate("legacy_certificate.pem")
     key = ec.generate_private_key(ec.SECP256R1())
     subject = issuer = x509.Name(
         [x509.NameAttribute(NameOID.COMMON_NAME, "gateway.example.test")]
     )
-    now = datetime.now(UTC)
     certificate = (
         x509.CertificateBuilder()
         .subject_name(subject)
         .issuer_name(issuer)
         .public_key(key.public_key())
         .serial_number(x509.random_serial_number())
-        .not_valid_before(now - timedelta(days=1))
-        .not_valid_after(now + timedelta(days=30))
+        .not_valid_before(CERTIFICATE_NOT_BEFORE)
+        .not_valid_after(CERTIFICATE_NOT_AFTER)
         .add_extension(
             x509.SubjectAlternativeName([x509.DNSName("gateway.example.test")]),
             critical=False,
@@ -58,7 +70,7 @@ def _self_signed_certificate() -> tuple[bytes, str]:
         .sign(key, hashes.SHA256())
     )
     der = certificate.public_bytes(serialization.Encoding.DER)
-    return der, certificate.public_bytes(serialization.Encoding.PEM).decode()
+    return der, ssl.DER_cert_to_PEM_cert(der)
 
 
 @pytest.mark.parametrize(
@@ -110,9 +122,15 @@ def test_normalize_legacy_host_upgrades_http() -> None:
     )
 
 
-async def test_probe_certificate_only_performs_tls_handshake() -> None:
+@pytest.mark.parametrize("legacy_parameters", [False, True])
+async def test_probe_certificate_only_performs_tls_handshake(
+    *,
+    legacy_parameters: bool,
+) -> None:
     """Certificate discovery should read the peer certificate without HTTP."""
-    certificate_der, certificate_pem = _self_signed_certificate()
+    certificate_der, certificate_pem = _self_signed_certificate(
+        legacy_parameters=legacy_parameters
+    )
     ssl_object = MagicMock()
     ssl_object.getpeercert.return_value = certificate_der
     writer = MagicMock()
@@ -127,6 +145,9 @@ async def test_probe_certificate_only_performs_tls_handshake() -> None:
 
     assert certificate.pem == certificate_pem
     assert certificate.fingerprint == hashlib.sha256(certificate_der).hexdigest()
+    assert certificate.not_valid_before == CERTIFICATE_NOT_BEFORE
+    assert certificate.not_valid_after == CERTIFICATE_NOT_AFTER
+    assert certificate.validity_error is None
     open_connection.assert_awaited_once()
     connection_call = open_connection.await_args
     assert connection_call is not None
@@ -134,6 +155,95 @@ async def test_probe_certificate_only_performs_tls_handshake() -> None:
     assert connection_call.kwargs["port"] == TEST_HTTPS_PORT
     writer.close.assert_called_once()
     writer.wait_closed.assert_awaited_once()
+
+
+@pytest.mark.parametrize("certificate_der", [b"", b"invalid", b"\x30\x00"])
+async def test_probe_rejects_unreadable_certificate(certificate_der: bytes) -> None:
+    """Invalid certificate metadata should raise a handled TLS error."""
+    with (
+        patch(
+            "custom_components.ha_smg_emh_casa.tls._async_open_tls",
+            new=AsyncMock(return_value=certificate_der),
+        ),
+        pytest.raises(EMHCASATlsVerificationError, match="validity dates"),
+    ):
+        await async_probe_certificate("gateway.example.test")
+
+
+async def test_probe_rejects_trailing_certificate_data() -> None:
+    """Certificate decoding must not ignore bytes after the DER certificate."""
+    certificate_der, _ = _self_signed_certificate()
+    with (
+        patch(
+            "custom_components.ha_smg_emh_casa.tls._async_open_tls",
+            new=AsyncMock(return_value=certificate_der + b"trailing data"),
+        ),
+        pytest.raises(EMHCASATlsVerificationError),
+    ):
+        await async_probe_certificate("gateway.example.test")
+
+
+async def test_probe_supports_certificate_without_version_or_extensions() -> None:
+    """X.509 v1 certificates should use the default version and omit extensions."""
+    certificate_der, _ = _fixture_certificate("v1_certificate.pem")
+    with patch(
+        "custom_components.ha_smg_emh_casa.tls._async_open_tls",
+        new=AsyncMock(return_value=certificate_der),
+    ):
+        metadata = await async_probe_certificate("gateway.example.test")
+
+    assert metadata.pem == ssl.DER_cert_to_PEM_cert(certificate_der)
+    assert metadata.not_valid_before == CERTIFICATE_NOT_BEFORE
+    assert metadata.not_valid_after == CERTIFICATE_NOT_AFTER
+
+
+async def test_probe_rejects_reversed_validity_dates() -> None:
+    """A certificate validity interval must not end before it starts."""
+    certificate_der, _ = _fixture_certificate("reversed_validity_certificate.pem")
+    with (
+        patch(
+            "custom_components.ha_smg_emh_casa.tls._async_open_tls",
+            new=AsyncMock(return_value=certificate_der),
+        ),
+        pytest.raises(EMHCASATlsVerificationError, match="Invalid gateway"),
+    ):
+        await async_probe_certificate("gateway.example.test")
+
+
+@pytest.mark.parametrize(
+    ("fixture", "not_before", "not_after", "error"),
+    [
+        (
+            "legacy_expired_certificate.pem",
+            datetime(2020, 1, 1, tzinfo=UTC),
+            datetime(2021, 1, 1, tzinfo=UTC),
+            "certificate_expired",
+        ),
+        (
+            "legacy_future_certificate.pem",
+            datetime(2090, 1, 1, tzinfo=UTC),
+            datetime(2091, 1, 1, tzinfo=UTC),
+            "certificate_not_yet_valid",
+        ),
+    ],
+)
+async def test_legacy_certificate_validity_is_checked(
+    fixture: str,
+    not_before: datetime,
+    not_after: datetime,
+    error: str,
+) -> None:
+    """Legacy algorithm parameters must not bypass validity checks."""
+    certificate_der, _ = _fixture_certificate(fixture)
+    with patch(
+        "custom_components.ha_smg_emh_casa.tls._async_open_tls",
+        new=AsyncMock(return_value=certificate_der),
+    ):
+        metadata = await async_probe_certificate("gateway.example.test")
+
+    assert metadata.not_valid_before == not_before
+    assert metadata.not_valid_after == not_after
+    assert metadata.validity_error == error
 
 
 async def test_trusted_probe_uses_verifying_context() -> None:

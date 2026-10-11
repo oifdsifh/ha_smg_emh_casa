@@ -55,6 +55,11 @@ the readings it exposes. It supports UI setup and local network discovery.
 
 ## TLS certificate checking
 
+Factory certificates with legacy ECDSA algorithm parameters are supported when
+reading certificate validity dates, including on Home Assistant 2026.10. The
+metadata decoder uses Home Assistant's bundled cryptography library. The original
+certificate is preserved for SHA-256 fingerprint comparison and TLS verification.
+
 The integration always connects over HTTPS and offers three choices:
 
 - **Trust and remember this gateway certificate** is the default and is

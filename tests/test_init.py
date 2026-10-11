@@ -112,15 +112,17 @@ async def test_setup_and_unload_entry(
     assert import_state.attributes["capture_time"] == "2026-04-03T18:15:43+02:00"
 
     device_registry = dr.async_get(hass)
-    sensor_entity = device_registry.async_get_device(
-        identifiers={
-            (
-                mock_config_entry.domain,
-                f"{mock_config_entry.entry_id}_{MOCK_METER_ID}",
-            )
-        }
+    sensor_entity = next(
+        device
+        for device in dr.async_entries_for_config_entry(
+            device_registry, mock_config_entry.entry_id
+        )
+        if (
+            mock_config_entry.domain,
+            f"{mock_config_entry.entry_id}_{MOCK_METER_ID}",
+        )
+        in device.identifiers
     )
-    assert sensor_entity is not None
     assert sensor_entity.serial_number == MOCK_METER_ID
 
     assert await hass.config_entries.async_unload(mock_config_entry.entry_id)
@@ -207,15 +209,17 @@ async def test_setup_uses_meter_id_as_serial_number_without_gateway_id(
     await hass.async_block_till_done()
 
     device_registry = dr.async_get(hass)
-    sensor_entity = device_registry.async_get_device(
-        identifiers={
-            (
-                mock_config_entry.domain,
-                f"{mock_config_entry.entry_id}_{MOCK_METER_ID}",
-            )
-        }
+    sensor_entity = next(
+        device
+        for device in dr.async_entries_for_config_entry(
+            device_registry, mock_config_entry.entry_id
+        )
+        if (
+            mock_config_entry.domain,
+            f"{mock_config_entry.entry_id}_{MOCK_METER_ID}",
+        )
+        in device.identifiers
     )
-    assert sensor_entity is not None
     assert sensor_entity.serial_number == MOCK_METER_ID
 
 
@@ -466,6 +470,45 @@ async def test_unchanged_pinned_certificate_allows_authenticated_poll(
     mock_async_get_data.assert_awaited_once()
 
     assert await hass.config_entries.async_unload(mock_config_entry.entry_id)
+    http_client.aclose.assert_awaited_once()
+
+
+async def test_unreadable_pinned_certificate_blocks_authenticated_poll(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_async_get_data: AsyncMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Metadata failures should trigger a clean retry without sending credentials."""
+    mock_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        mock_config_entry,
+        data={
+            **dict(mock_config_entry.data),
+            CONF_TLS_MODE: TLS_MODE_PINNED_CERTIFICATE,
+            CONF_TLS_CERTIFICATE: OLD_CERTIFICATE.pem,
+            CONF_TLS_FINGERPRINT: OLD_CERTIFICATE.fingerprint,
+        },
+    )
+    http_client = AsyncMock()
+
+    with (
+        patch(
+            "custom_components.ha_smg_emh_casa.create_httpx_client",
+            return_value=http_client,
+        ),
+        patch(
+            "custom_components.ha_smg_emh_casa.tls._async_open_tls",
+            new=AsyncMock(return_value=b"invalid certificate"),
+        ),
+    ):
+        assert not await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert mock_config_entry.state is ConfigEntryState.SETUP_RETRY
+    assert "Unable to read the gateway TLS certificate validity dates" in caplog.text
+    assert "Unexpected error fetching" not in caplog.text
+    mock_async_get_data.assert_not_awaited()
     http_client.aclose.assert_awaited_once()
 
 

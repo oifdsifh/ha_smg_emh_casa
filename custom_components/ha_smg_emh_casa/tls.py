@@ -9,10 +9,11 @@ import ssl
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Annotated
 from urllib.parse import urlsplit
 
 import httpx
-from cryptography import x509
+from cryptography.hazmat import asn1
 from homeassistant.util.ssl import (
     SSL_ALPN_HTTP11,
     client_context,
@@ -28,6 +29,39 @@ from .const import (
 TLS_TIMEOUT = 20
 HTTPS_PORT = 443
 IPV6_MINIMUM_COLONS = 2
+
+
+@asn1.sequence
+class _CertificateValidity:
+    """X.509 validity dates, accepting both UTC and generalized time."""
+
+    not_before: asn1.UTCTime | asn1.GeneralizedTime
+    not_after: asn1.UTCTime | asn1.GeneralizedTime
+
+
+@asn1.sequence
+class _TBSCertificateMetadata:
+    """X.509 certificate structure with uninterpreted algorithm parameters."""
+
+    version: Annotated[int, asn1.Explicit(0), asn1.Default(0)]
+    serial_number: asn1.TLV
+    signature: asn1.TLV
+    issuer: asn1.TLV
+    validity: _CertificateValidity
+    subject: asn1.TLV
+    subject_public_key_info: asn1.TLV
+    issuer_unique_id: Annotated[asn1.BitString | None, asn1.Implicit(1)]
+    subject_unique_id: Annotated[asn1.BitString | None, asn1.Implicit(2)]
+    extensions: Annotated[list[asn1.TLV] | None, asn1.Explicit(3)]
+
+
+@asn1.sequence
+class _CertificateMetadata:
+    """Certificate metadata for display, with verification left to OpenSSL."""
+
+    tbs_certificate: _TBSCertificateMetadata
+    signature_algorithm: asn1.TLV
+    signature_value: asn1.BitString
 
 
 class EMHCASATlsError(Exception):
@@ -152,12 +186,27 @@ def _split_authority(authority: str) -> tuple[str, int]:
 
 def _certificate_from_der(certificate_der: bytes) -> GatewayCertificate:
     """Build certificate metadata from a DER encoded certificate."""
-    certificate = x509.load_der_x509_certificate(certificate_der)
+    # Some factory certificates encode NULL ECDSA algorithm parameters, which
+    # cryptography >= 49 rejects. Read only metadata here; OpenSSL still verifies
+    # the original certificate in the pinned SSL context, without rewriting it.
+    try:
+        certificate = asn1.decode_der(_CertificateMetadata, certificate_der)
+        validity = certificate.tbs_certificate.validity
+        not_valid_before = validity.not_before.as_datetime()
+        not_valid_after = validity.not_after.as_datetime()
+    except (ValueError, TypeError, OverflowError) as exception:
+        msg = "Unable to read the gateway TLS certificate validity dates"
+        raise EMHCASATlsVerificationError(msg) from exception
+
+    if not_valid_after < not_valid_before:
+        msg = "Invalid gateway TLS certificate validity dates"
+        raise EMHCASATlsVerificationError(msg)
+
     return GatewayCertificate(
         pem=ssl.DER_cert_to_PEM_cert(certificate_der),
         fingerprint=hashlib.sha256(certificate_der).hexdigest(),
-        not_valid_before=certificate.not_valid_before_utc,
-        not_valid_after=certificate.not_valid_after_utc,
+        not_valid_before=not_valid_before,
+        not_valid_after=not_valid_after,
     )
 
 
