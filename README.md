@@ -20,23 +20,39 @@ the readings it exposes. It supports UI setup and local network discovery.
 - Offers certificate pinning, normal certificate validation, and an explicit
   insecure compatibility mode
 
-## Installation via HACS
+## Installation
 
-1. Open HACS in Home Assistant.
-2. Go to `Integrations`.
-3. Open the menu in the top right and select `Custom repositories`.
-4. Add `https://github.com/oifdsifh/ha_smg_emh_casa` as an `Integration`
-   repository.
-5. Search for `EMH CASA` in HACS and install it.
-6. Restart Home Assistant.
+### Via HACS (recommended)
+
+EMH CASA is included in the HACS store. If you do not have HACS yet,
+[install HACS](https://www.hacs.xyz/docs/use/download/download/) first.
+
+[![Open EMH CASA in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=oifdsifh&repository=ha_smg_emh_casa&category=integration)
+
+1. Click the button above, or open HACS in Home Assistant and search for
+   `EMH CASA`.
+2. Open the integration and download it.
+3. Restart Home Assistant, then follow [Setup](#setup) below.
+
+### Manual installation
+
+1. Download the source code archive from the
+   [latest release](https://github.com/oifdsifh/ha_smg_emh_casa/releases/latest)
+   and extract it.
+2. Copy the `custom_components/ha_smg_emh_casa` directory from the archive into
+   the `custom_components` directory in your Home Assistant configuration
+   directory (usually `/config`). Create `custom_components` if it does not
+   exist. The resulting path should be
+   `/config/custom_components/ha_smg_emh_casa`.
+3. Restart Home Assistant, then follow [Setup](#setup) below.
 
 ## Setup
 
 1. In Home Assistant, go to `Settings` > `Devices & Services`.
 2. Start the setup in one of these ways:
-   - Select the discovered EMH CASA gateway if Home Assistant already offers
-     it. The gateway host will be prefilled.
-   - Otherwise, click `Add Integration` and search for `EMH CASA`.
+    - Select the discovered EMH CASA gateway if Home Assistant already offers
+      it. The gateway host will be prefilled.
+    - Otherwise, click `Add Integration` and search for `EMH CASA`.
 3. Enter or confirm the gateway host, then choose how Home Assistant should
    check its TLS certificate.
 4. If you choose **Trust and remember this gateway certificate**, review the
