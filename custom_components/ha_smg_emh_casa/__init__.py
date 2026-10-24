@@ -24,7 +24,6 @@ from homeassistant.loader import async_get_loaded_integration
 
 from .api import EMHCASAClient
 from .const import (
-    CONF_GATEWAY_ID,
     CONF_TLS_CERTIFICATE,
     CONF_TLS_FINGERPRINT,
     CONF_TLS_MODE,
@@ -41,7 +40,6 @@ from .const import (
 )
 from .coordinator import EMHCASADataUpdateCoordinator
 from .data import EMHCASAData
-from .identity import account_title
 from .tls import (
     EMHCASATlsError,
     EMHCASATlsVerificationError,
@@ -65,7 +63,7 @@ async def async_migrate_entry(
     hass: HomeAssistant,
     entry: EMHCASAConfigEntry,
 ) -> bool:
-    """Migrate TLS settings when needed, then update account titles offline."""
+    """Migrate TLS settings."""
     if entry.version != 1:
         LOGGER.error("Cannot migrate config entry from version %s", entry.version)
         return False
@@ -77,10 +75,8 @@ async def async_migrate_entry(
     ):
         return False
 
-    values = entry.data | entry.options
     hass.config_entries.async_update_entry(
         entry,
-        title=account_title(values) if values.get(CONF_GATEWAY_ID) else entry.title,
         minor_version=CONFIG_ENTRY_MINOR_VERSION,
     )
     return True

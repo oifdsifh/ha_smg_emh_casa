@@ -574,7 +574,7 @@ async def test_missing_gateway_id_requires_revalidated_manual_identity(
     """Manual identity must be nonblank, match discovery and pass validation."""
     entry = MockConfigEntry(
         domain=DOMAIN,
-        title="Legacy host",
+        title=MOCK_GATEWAY_HOST,
         data=MOCK_CONFIG,
         unique_id="192-0-2-25",
         minor_version=CONFIG_ENTRY_MINOR_VERSION,
@@ -632,7 +632,11 @@ async def test_missing_gateway_id_requires_revalidated_manual_identity(
     elif source == "reauth":
         assert result["reason"] == "reauth_successful"
     assert entry.data[CONF_GATEWAY_ID] == MOCK_GATEWAY_ID
-    assert entry.title == f"{MOCK_GATEWAY_ID} ({MOCK_CONFIG[CONF_USERNAME]})"
+    assert entry.title == (
+        f"{MOCK_GATEWAY_ID} ({MOCK_CONFIG[CONF_USERNAME]})"
+        if source == "user"
+        else MOCK_GATEWAY_HOST
+    )
     assert json.loads(entry.unique_id) == [MOCK_GATEWAY_ID, MOCK_CONFIG[CONF_USERNAME]]
 
 
@@ -775,7 +779,7 @@ async def test_existing_huid_is_reused_only_for_unchanged_host(
 
 
 @pytest.mark.parametrize("source", ["options", "reauth"])
-async def test_username_changes_refresh_identity_and_title(
+async def test_username_changes_refresh_identity(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
     source: str,
@@ -805,7 +809,6 @@ async def test_username_changes_refresh_identity_and_title(
             )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert mock_config_entry.entry_id == original_entry_id
-    assert mock_config_entry.title == f"{MOCK_GATEWAY_ID} (replacement-user)"
     assert json.loads(mock_config_entry.unique_id) == [
         MOCK_GATEWAY_ID,
         "replacement-user",

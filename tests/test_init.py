@@ -600,71 +600,38 @@ async def test_invalid_unchanged_pinned_certificate_creates_nonfixable_repair(
     http_client.aclose.assert_awaited_once()
 
 
-@pytest.mark.parametrize("has_gateway_id", [False, True])
-async def test_title_migration_is_offline_and_preserves_registrations(
+@pytest.mark.parametrize("minor_version", [2, 3])
+async def test_entry_migration_preserves_configuration(
     hass: HomeAssistant,
-    *,
-    has_gateway_id: bool,
+    minor_version: int,
 ) -> None:
-    """Upgrading 1.2 should only change the known account title and version."""
+    """Entries with current TLS settings only need their version updated."""
     entry = MockConfigEntry(
         domain=DOMAIN,
-        title="Old gateway title",
+        title="My electricity gateway",
         data={
             **MOCK_CONFIG,
             CONF_TLS_MODE: TLS_MODE_PINNED_CERTIFICATE,
             CONF_TLS_CERTIFICATE: OLD_CERTIFICATE.pem,
             CONF_TLS_FINGERPRINT: OLD_CERTIFICATE.fingerprint,
-            **({CONF_GATEWAY_ID: MOCK_GATEWAY_ID} if has_gateway_id else {}),
+            CONF_GATEWAY_ID: MOCK_GATEWAY_ID,
         },
         options={CONF_USERNAME: "effective-user"},
-        unique_id=MOCK_GATEWAY_ID if has_gateway_id else "192-0-2-25",
-        minor_version=2,
+        unique_id=MOCK_GATEWAY_ID,
+        minor_version=minor_version,
     )
     entry.add_to_hass(hass)
-    device_registry = dr.async_get(hass)
-    device = device_registry.async_get_or_create(
-        config_entry_id=entry.entry_id,
-        identifiers={(DOMAIN, f"{entry.entry_id}_{MOCK_METER_ID}")},
-    )
-    registry = er.async_get(hass)
-    unique_id = f"{entry.entry_id}_{MOCK_METER_ID}_existing-reading"
-    entity = registry.async_get_or_create(
-        "sensor",
-        DOMAIN,
-        unique_id,
-        config_entry=entry,
-        device_id=device.id,
-    )
     original_data, original_options = dict(entry.data), dict(entry.options)
-    original_unique_id = entry.unique_id
-    with (
-        patch(
-            "custom_components.ha_smg_emh_casa.async_test_trusted_certificate",
-            new=AsyncMock(),
-        ) as trusted,
-        patch(
-            "custom_components.ha_smg_emh_casa.async_probe_certificate",
-            new=AsyncMock(),
-        ) as probe,
-        patch(
-            "custom_components.ha_smg_emh_casa.persistent_notification.async_create"
-        ) as notify,
-    ):
+    with patch(
+        "custom_components.ha_smg_emh_casa._async_migrate_tls", new=AsyncMock()
+    ) as migrate_tls:
         assert await async_migrate_entry(hass, entry)
-    trusted.assert_not_awaited()
-    probe.assert_not_awaited()
-    notify.assert_not_called()
+    migrate_tls.assert_not_awaited()
     assert entry.minor_version == CONFIG_ENTRY_MINOR_VERSION
-    assert entry.title == (
-        f"{MOCK_GATEWAY_ID} (effective-user)" if has_gateway_id else "Old gateway title"
-    )
+    assert entry.title == "My electricity gateway"
     assert entry.data == original_data
     assert entry.options == original_options
-    assert entry.unique_id == original_unique_id
-    assert registry.async_get(entity.entity_id) is entity
-    assert entity.unique_id == unique_id
-    assert device_registry.async_get(device.id) is device
+    assert entry.unique_id == MOCK_GATEWAY_ID
 
 
 async def test_two_accounts_poll_and_unload_independently(hass: HomeAssistant) -> None:

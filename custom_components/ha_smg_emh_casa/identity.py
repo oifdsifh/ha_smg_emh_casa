@@ -34,7 +34,7 @@ def account_unique_id(settings: Mapping[str, Any]) -> str:
 
 
 def account_title(settings: Mapping[str, Any]) -> str:
-    """Return the displayed hub name for one HAN account."""
+    """Return the initial hub name for one HAN account."""
     return f"{settings[CONF_GATEWAY_ID]} ({settings[CONF_USERNAME]})"
 
 
@@ -69,7 +69,7 @@ def account_entry_updates(
     entry: ConfigEntry,
     settings: Mapping[str, Any],
 ) -> dict[str, Any]:
-    """Prepare an atomic identity/settings update without changing entity IDs."""
+    """Prepare an identity/settings update without changing titles or entity IDs."""
     values = entry.data | entry.options
     data = dict(entry.data)
     data[CONF_GATEWAY_ID] = settings[CONF_GATEWAY_ID]
@@ -82,7 +82,6 @@ def account_entry_updates(
     updates: dict[str, Any] = {
         "data": data,
         "options": options,
-        "title": account_title(settings),
     }
     if (
         values.get(CONF_GATEWAY_ID) != settings[CONF_GATEWAY_ID]
