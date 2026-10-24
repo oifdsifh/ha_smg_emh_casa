@@ -15,6 +15,7 @@ from homeassistant.const import (
     CONF_USERNAME,
 )
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -24,6 +25,7 @@ from custom_components.ha_smg_emh_casa.api import (
     EMHCASAClient,
 )
 from custom_components.ha_smg_emh_casa.const import (
+    CONF_GATEWAY_ID,
     CONF_TLS_CERTIFICATE,
     CONF_TLS_FINGERPRINT,
     CONF_TLS_MODE,
@@ -596,3 +598,145 @@ async def test_invalid_unchanged_pinned_certificate_creates_nonfixable_repair(
     assert issue.data == {"entry_id": mock_config_entry.entry_id}
     get_data.assert_not_awaited()
     http_client.aclose.assert_awaited_once()
+
+
+@pytest.mark.parametrize("has_gateway_id", [False, True])
+async def test_title_migration_is_offline_and_preserves_registrations(
+    hass: HomeAssistant,
+    *,
+    has_gateway_id: bool,
+) -> None:
+    """Upgrading 1.2 should only change the known account title and version."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Old gateway title",
+        data={
+            **MOCK_CONFIG,
+            CONF_TLS_MODE: TLS_MODE_PINNED_CERTIFICATE,
+            CONF_TLS_CERTIFICATE: OLD_CERTIFICATE.pem,
+            CONF_TLS_FINGERPRINT: OLD_CERTIFICATE.fingerprint,
+            **({CONF_GATEWAY_ID: MOCK_GATEWAY_ID} if has_gateway_id else {}),
+        },
+        options={CONF_USERNAME: "effective-user"},
+        unique_id=MOCK_GATEWAY_ID if has_gateway_id else "192-0-2-25",
+        minor_version=2,
+    )
+    entry.add_to_hass(hass)
+    device_registry = dr.async_get(hass)
+    device = device_registry.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, f"{entry.entry_id}_{MOCK_METER_ID}")},
+    )
+    registry = er.async_get(hass)
+    unique_id = f"{entry.entry_id}_{MOCK_METER_ID}_existing-reading"
+    entity = registry.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        unique_id,
+        config_entry=entry,
+        device_id=device.id,
+    )
+    original_data, original_options = dict(entry.data), dict(entry.options)
+    original_unique_id = entry.unique_id
+    with (
+        patch(
+            "custom_components.ha_smg_emh_casa.async_test_trusted_certificate",
+            new=AsyncMock(),
+        ) as trusted,
+        patch(
+            "custom_components.ha_smg_emh_casa.async_probe_certificate",
+            new=AsyncMock(),
+        ) as probe,
+        patch(
+            "custom_components.ha_smg_emh_casa.persistent_notification.async_create"
+        ) as notify,
+    ):
+        assert await async_migrate_entry(hass, entry)
+    trusted.assert_not_awaited()
+    probe.assert_not_awaited()
+    notify.assert_not_called()
+    assert entry.minor_version == CONFIG_ENTRY_MINOR_VERSION
+    assert entry.title == (
+        f"{MOCK_GATEWAY_ID} (effective-user)" if has_gateway_id else "Old gateway title"
+    )
+    assert entry.data == original_data
+    assert entry.options == original_options
+    assert entry.unique_id == original_unique_id
+    assert registry.async_get(entity.entity_id) is entity
+    assert entity.unique_id == unique_id
+    assert device_registry.async_get(device.id) is device
+
+
+async def test_two_accounts_poll_and_unload_independently(hass: HomeAssistant) -> None:
+    """Separate users retain independent clients, coordinators and meter devices."""
+    entries = [
+        MockConfigEntry(
+            domain=DOMAIN,
+            title=f"{MOCK_GATEWAY_ID} (user-{index})",
+            data={
+                **MOCK_CONFIG,
+                CONF_GATEWAY_ID: MOCK_GATEWAY_ID,
+                CONF_USERNAME: f"user-{index}",
+                CONF_SCAN_INTERVAL: 60 + index,
+            },
+            unique_id=f"account-{index}",
+            minor_version=CONFIG_ENTRY_MINOR_VERSION,
+        )
+        for index in range(2)
+    ]
+    with patch(
+        "custom_components.ha_smg_emh_casa.api.EMHCASAClient.async_get_data",
+        new=AsyncMock(return_value=MOCK_API_DATA),
+    ):
+        for entry in entries:
+            entry.add_to_hass(hass)
+            assert await hass.config_entries.async_setup(entry.entry_id)
+            await hass.async_block_till_done()
+    first, second = entries
+    assert first.runtime_data.client is not second.runtime_data.client
+    assert first.runtime_data.coordinator is not second.runtime_data.coordinator
+    for index, entry in enumerate(entries):
+        assert entry.runtime_data.coordinator.update_interval == timedelta(
+            seconds=60 + index
+        )
+    registry = er.async_get(hass)
+    entities = [
+        er.async_entries_for_config_entry(registry, entry.entry_id) for entry in entries
+    ]
+    assert (
+        len(entities[0])
+        == len(entities[1])
+        == len(MOCK_API_DATA[MOCK_METER_ID]["values"])
+    )
+    assert {entity.unique_id for entity in entities[0]}.isdisjoint(
+        entity.unique_id for entity in entities[1]
+    )
+    device_registry = dr.async_get(hass)
+    devices = [
+        dr.async_entries_for_config_entry(device_registry, entry.entry_id)
+        for entry in entries
+    ]
+    assert devices[0][0].id != devices[1][0].id
+    second_state = hass.states.get(entities[1][0].entity_id)
+    assert second_state is not None
+    previous_state = second_state.state
+    first.runtime_data.coordinator.async_set_updated_data({})
+    await hass.async_block_till_done()
+    assert hass.states.get(entities[1][0].entity_id).state == previous_state
+    with (
+        patch.object(
+            first.runtime_data.client, "async_close", new=AsyncMock()
+        ) as close_first,
+        patch.object(
+            second.runtime_data.client, "async_close", new=AsyncMock()
+        ) as close_second,
+    ):
+        assert await hass.config_entries.async_unload(first.entry_id)
+        await hass.async_block_till_done()
+        close_first.assert_awaited_once()
+        close_second.assert_not_awaited()
+    assert second.state is ConfigEntryState.LOADED
+    second.runtime_data.coordinator.async_set_updated_data(MOCK_API_DATA)
+    await hass.async_block_till_done()
+    assert hass.states.get(entities[1][0].entity_id).state == previous_state
+    assert await hass.config_entries.async_unload(second.entry_id)

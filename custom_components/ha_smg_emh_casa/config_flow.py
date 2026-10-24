@@ -15,7 +15,6 @@ from homeassistant.const import (
 from homeassistant.core import callback
 from homeassistant.helpers import selector
 from homeassistant.loader import async_get_loaded_integration
-from slugify import slugify
 
 from .api import (
     EMHCASAApiClientAuthenticationError,
@@ -36,6 +35,13 @@ from .const import (
     LOGGER,
     TLS_MODE_PINNED_CERTIFICATE,
     TLS_MODES,
+)
+from .identity import (
+    account_entry_updates,
+    account_title,
+    account_unique_id,
+    is_duplicate_account,
+    same_gateway_host,
 )
 from .tls import (
     EMHCASAHttpNotAllowedError,
@@ -73,6 +79,8 @@ async def async_validate_connection(
     try:
         try:
             gateway_id = await client.async_get_gateway_id()
+        except EMHCASAApiClientCertificateError:
+            raise
         except EMHCASAApiClientError:
             gateway_id = None
         await client.async_get_data()
@@ -126,7 +134,93 @@ def _error_key(exception: EMHCASAApiClientError | EMHCASATlsError) -> str:
     return error_key
 
 
-class EMHCASAFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
+class GatewayIdentityFlow(config_entries.ConfigEntryBaseFlow):
+    """Resolve a mandatory HüID before any account settings are saved."""
+
+    _pending_identity: dict[str, Any] | None = None
+
+    def _identity_entry(self) -> ConfigEntry | None:
+        """Return the entry being edited, if any."""
+        raise NotImplementedError
+
+    async def _async_save_identity(
+        self, prepared: dict[str, Any]
+    ) -> config_entries.ConfigFlowResult:
+        """Save fully validated account settings."""
+        raise NotImplementedError
+
+    async def _async_finish_identity(
+        self,
+        prepared: dict[str, Any],
+        gateway_id: str | None,
+    ) -> config_entries.ConfigFlowResult:
+        """Resolve an automatic or saved identity and reject account conflicts."""
+        entry = self._identity_entry()
+        values = entry.data | entry.options if entry is not None else {}
+        if (
+            not gateway_id
+            and values
+            and same_gateway_host(prepared[CONF_HOST], values[CONF_HOST])
+        ):
+            gateway_id = values.get(CONF_GATEWAY_ID)
+        if not gateway_id:
+            self._pending_identity = prepared
+            return await self.async_step_gateway_id()
+
+        if (
+            self.context.get("source") == config_entries.SOURCE_REAUTH
+            and values.get(CONF_GATEWAY_ID)
+            and values[CONF_GATEWAY_ID] != gateway_id
+        ):
+            return self.async_abort(reason="wrong_gateway")
+        prepared[CONF_GATEWAY_ID] = gateway_id
+        if is_duplicate_account(self.hass, prepared, entry):
+            return self.async_abort(reason="already_configured")
+        return await self._async_save_identity(prepared)
+
+    async def async_step_gateway_id(
+        self,
+        user_input: dict[str, Any] | None = None,
+    ) -> config_entries.ConfigFlowResult:
+        """Request a HüID when the gateway cannot provide one automatically."""
+        pending = self._pending_identity
+        if pending is None:
+            return self.async_abort(reason="unknown")
+        entry = self._identity_entry()
+        values = entry.data | entry.options if entry is not None else {}
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            gateway_id = user_input[CONF_GATEWAY_ID].strip()
+            if not gateway_id:
+                errors[CONF_GATEWAY_ID] = "gateway_id_required"
+            else:
+                try:
+                    detected = await async_validate_connection(pending)
+                except (EMHCASAApiClientError, EMHCASATlsError) as exception:
+                    errors["base"] = _error_key(exception)
+                else:
+                    if detected and detected != gateway_id:
+                        errors[CONF_GATEWAY_ID] = "gateway_id_mismatch"
+                    else:
+                        return await self._async_finish_identity(pending, gateway_id)
+        return self.async_show_form(
+            step_id="gateway_id",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_GATEWAY_ID,
+                        default=(user_input or {}).get(
+                            CONF_GATEWAY_ID,
+                            values.get(CONF_GATEWAY_ID, vol.UNDEFINED),
+                        ),
+                    ): selector.TextSelector(),
+                }
+            ),
+            errors=errors,
+        )
+
+
+class EMHCASAFlowHandler(GatewayIdentityFlow, config_entries.ConfigFlow, domain=DOMAIN):
     """Config flow for EMH CASA."""
 
     VERSION = 1
@@ -152,8 +246,14 @@ class EMHCASAFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         discovery_info: ZeroconfServiceInfo,
     ) -> config_entries.ConfigFlowResult:
         """Handle a flow initialized by zeroconf discovery."""
-        self._discovered_host = discovery_info.host
-        self._async_abort_entries_match({CONF_HOST: self._discovered_host})
+        self._discovered_host = normalize_host(discovery_info.host)
+        if any(
+            same_gateway_host(
+                (entry.data | entry.options)[CONF_HOST], self._discovered_host
+            )
+            for entry in self._async_current_entries(include_ignore=False)
+        ):
+            return self.async_abort(reason="already_configured")
         return await self.async_step_user()
 
     async def async_step_user(
@@ -257,16 +357,7 @@ class EMHCASAFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             except (EMHCASAApiClientError, EMHCASATlsError) as exception:
                 errors["base"] = _error_key(exception)
             else:
-                host = entry_data[CONF_HOST]
-                await self.async_set_unique_id(gateway_id or slugify(host))
-                self._async_abort_entries_match({CONF_HOST: host})
-                self._abort_if_unique_id_configured()
-                if gateway_id is not None:
-                    entry_data[CONF_GATEWAY_ID] = gateway_id
-                return self.async_create_entry(
-                    title=gateway_id or host,
-                    data=entry_data,
-                )
+                return await self._async_finish_identity(entry_data, gateway_id)
 
         return self.async_show_form(
             step_id="credentials",
@@ -302,7 +393,7 @@ class EMHCASAFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             except (EMHCASAApiClientError, EMHCASATlsError) as exception:
                 errors["base"] = _error_key(exception)
             else:
-                return await self._async_finish_reauth(prepared, gateway_id)
+                return await self._async_finish_identity(prepared, gateway_id)
 
         return self.async_show_form(
             step_id="reauth_confirm",
@@ -330,7 +421,7 @@ class EMHCASAFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                 else:
                     pending.update(_certificate_data(current))
                     gateway_id = await self._async_validate_prepared(pending)
-                    return await self._async_finish_reauth(pending, gateway_id)
+                    return await self._async_finish_identity(pending, gateway_id)
             except (EMHCASAApiClientError, EMHCASATlsError) as exception:
                 errors["base"] = _error_key(exception)
 
@@ -367,25 +458,23 @@ class EMHCASAFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         """Validate a normalized existing-entry submission."""
         return await async_validate_connection(prepared)
 
-    async def _async_finish_reauth(
-        self,
-        prepared: dict[str, Any],
-        gateway_id: str | None,
-    ) -> config_entries.ConfigFlowResult:
-        """Save a successfully validated reauthentication submission."""
-        reauth_entry = self._get_reauth_entry()
-        if gateway_id is not None:
-            await self.async_set_unique_id(gateway_id)
-            self._abort_if_unique_id_mismatch(reason="wrong_gateway")
+    def _identity_entry(self) -> ConfigEntry | None:
+        """Return the entry for reauthentication, or none for new setup."""
+        if self.source == config_entries.SOURCE_REAUTH:
+            return self._get_reauth_entry()
+        return None
 
-        options = dict(reauth_entry.options) | prepared
-        data = dict(reauth_entry.data)
-        if prepared[CONF_TLS_MODE] != TLS_MODE_PINNED_CERTIFICATE:
-            for key in (CONF_TLS_CERTIFICATE, CONF_TLS_FINGERPRINT):
-                options.pop(key, None)
-                data.pop(key, None)
-        self.hass.config_entries.async_update_entry(reauth_entry, data=data)
-        return self.async_update_reload_and_abort(reauth_entry, options=options)
+    async def _async_save_identity(
+        self, prepared: dict[str, Any]
+    ) -> config_entries.ConfigFlowResult:
+        """Create an account or atomically update its reauthenticated settings."""
+        if (entry := self._identity_entry()) is not None:
+            return self.async_update_reload_and_abort(
+                entry, **account_entry_updates(entry, prepared)
+            )
+        await self.async_set_unique_id(account_unique_id(prepared))
+        self._abort_if_unique_id_configured()
+        return self.async_create_entry(title=account_title(prepared), data=prepared)
 
     def _existing_schema(
         self,
@@ -472,7 +561,9 @@ class EMHCASAFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
 
-class EMHCASAOptionsFlowHandler(config_entries.OptionsFlowWithReload):
+class EMHCASAOptionsFlowHandler(
+    GatewayIdentityFlow, config_entries.OptionsFlowWithReload
+):
     """Handle EMH CASA options."""
 
     def __init__(self, config_entry: ConfigEntry) -> None:
@@ -498,11 +589,11 @@ class EMHCASAOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                     self._pending_input = prepared
                     self._pending_certificate = certificate
                     return await self.async_step_confirm_certificate()
-                await self._async_validate(prepared)
+                gateway_id = await async_validate_connection(prepared)
             except (EMHCASAApiClientError, EMHCASATlsError) as exception:
                 errors["base"] = _error_key(exception)
             else:
-                return self._save_options(prepared)
+                return await self._async_finish_identity(prepared, gateway_id)
 
         return self.async_show_form(
             step_id="init",
@@ -529,8 +620,8 @@ class EMHCASAOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                     errors["base"] = "certificate_changed_during_setup"
                 else:
                     pending.update(_certificate_data(current))
-                    await self._async_validate(pending)
-                    return self._save_options(pending)
+                    gateway_id = await async_validate_connection(pending)
+                    return await self._async_finish_identity(pending, gateway_id)
             except (EMHCASAApiClientError, EMHCASATlsError) as exception:
                 errors["base"] = _error_key(exception)
 
@@ -565,22 +656,17 @@ class EMHCASAOptionsFlowHandler(config_entries.OptionsFlowWithReload):
             prepared.update(_certificate_data(certificate))
         return prepared, certificate, not unchanged
 
-    async def _async_validate(self, prepared: dict[str, Any]) -> None:
-        """Validate a normalized option submission."""
-        await async_validate_connection(prepared)
+    def _identity_entry(self) -> ConfigEntry:
+        """Return the entry being configured."""
+        return self._config_entry
 
-    def _save_options(
-        self,
-        prepared: dict[str, Any],
+    async def _async_save_identity(
+        self, prepared: dict[str, Any]
     ) -> config_entries.ConfigFlowResult:
-        """Save validated options and remove obsolete pin data."""
-        options = dict(self._config_entry.options) | prepared
-        data = dict(self._config_entry.data)
-        if prepared[CONF_TLS_MODE] != TLS_MODE_PINNED_CERTIFICATE:
-            for key in (CONF_TLS_CERTIFICATE, CONF_TLS_FINGERPRINT):
-                options.pop(key, None)
-                data.pop(key, None)
-        self.hass.config_entries.async_update_entry(self._config_entry, data=data)
+        """Save identity metadata and let the options manager save and reload."""
+        updates = account_entry_updates(self._config_entry, prepared)
+        options = updates.pop("options")
+        self.hass.config_entries.async_update_entry(self._config_entry, **updates)
         return self.async_create_entry(title="", data=options)
 
     def _options_schema(self, user_input: dict[str, Any] | None) -> vol.Schema:
