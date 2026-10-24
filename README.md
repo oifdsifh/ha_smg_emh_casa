@@ -49,9 +49,22 @@ the readings it exposes. It supports UI setup and local network discovery.
    selected TLS mode, authenticates, and verifies that it can fetch meter data.
 7. If validation fails, review the error shown in the flow, correct the relevant
    setting, and submit it again.
-8. After successful validation, the flow reports if the gateway is already
-   configured. Otherwise, it creates the config entry and the sensors appear
-   automatically.
+8. The integration reads the gateway's HüID from its Digest authentication response. If it cannot
+   obtain one, enter the **Gateway ID (HüID)** shown in the gateway portal's
+   overview after logging in. This is the gateway's ID, rather than your user ID.
+9. After successful validation, the flow reports if this HAN account is already
+   configured. Otherwise, it creates a hub named **`<Gateway ID > (<username>)`**.
+
+## Multiple HAN accounts on one gateway
+
+A gateway can expose different meters to different HAN accounts. Add EMH CASA
+once for each username, using the same gateway host and Gateway ID (HüID) with that account's
+credentials. Each account appears as a separate configured hub and polls its own
+meter data independently. An account that can already access several meters
+only needs one entry.
+
+Network discovery offers setup for the gateway. To add another account after the
+gateway is configured, use **Add Integration** and enter the same host.
 
 ## TLS certificate checking
 

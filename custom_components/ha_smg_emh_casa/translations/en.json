@@ -33,6 +33,13 @@
             "reauth_confirm_certificate": {
                 "title": "Trust the new gateway certificate?",
                 "description": "The gateway at `{host}` presented a certificate that is not currently remembered. Confirm it before Home Assistant sends the updated login details.\n\n**SHA-256 fingerprint:** `{fingerprint}`"
+            },
+            "gateway_id": {
+                "title": "Gateway ID (HüID)",
+                "description": "The gateway did not provide its ID automatically. Enter the HüID shown in the gateway portal overview after logging in. This is the gateway ID, rather than your user ID. Home Assistant will check the connection again before saving.",
+                "data": {
+                    "gateway_id": "Gateway ID (HüID)"
+                }
             }
         },
         "error": {
@@ -42,7 +49,9 @@
             "connection": "Unable to establish a secure connection to the gateway.",
             "http_not_allowed": "HTTP is not supported. Enter the hostname or an HTTPS address.",
             "invalid_host": "Enter only a hostname, IP address, or HTTPS address without a path, query, or login details.",
-            "unknown": "An unexpected error occurred."
+            "unknown": "An unexpected error occurred.",
+            "gateway_id_required": "Enter the gateway HüID.",
+            "gateway_id_mismatch": "The entered HüID does not match the ID returned by the gateway."
         },
         "abort": {
             "already_configured": "This entry is already configured.",
@@ -66,6 +75,13 @@
             "confirm_certificate": {
                 "title": "Trust the new gateway certificate?",
                 "description": "The gateway at `{host}` presented a new certificate. Confirm it before Home Assistant sends login details.\n\n**SHA-256 fingerprint:** `{fingerprint}`"
+            },
+            "gateway_id": {
+                "title": "Gateway ID (HüID)",
+                "description": "The gateway did not provide its ID automatically. Enter the HüID shown in the gateway portal overview after logging in. This is the gateway ID, rather than your user ID. Home Assistant will check the connection again before saving.",
+                "data": {
+                    "gateway_id": "Gateway ID (HüID)"
+                }
             }
         },
         "error": {
@@ -75,10 +91,13 @@
             "connection": "Unable to establish a secure connection to the gateway.",
             "http_not_allowed": "HTTP is not supported. Enter the hostname or an HTTPS address.",
             "invalid_host": "Enter only a hostname, IP address, or HTTPS address without a path, query, or login details.",
-            "unknown": "An unexpected error occurred."
+            "unknown": "An unexpected error occurred.",
+            "gateway_id_required": "Enter the gateway HüID.",
+            "gateway_id_mismatch": "The entered HüID does not match the ID returned by the gateway."
         },
         "abort": {
-            "unknown": "The options flow lost its pending gateway information. Start again."
+            "unknown": "The options flow lost its pending gateway information. Start again.",
+            "already_configured": "This HAN account is already configured for this gateway."
         }
     },
     "selector": {

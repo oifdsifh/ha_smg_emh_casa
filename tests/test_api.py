@@ -51,7 +51,7 @@ async def test_async_get_gateway_id_reads_digest_realm() -> None:
 
 
 async def test_async_get_gateway_id_returns_none_without_digest_realm() -> None:
-    """Missing Digest metadata should not break setup."""
+    """Missing Digest metadata should report no ID for manual entry."""
 
     def handler(_: httpx.Request) -> httpx.Response:
         return httpx.Response(401, headers={"WWW-Authenticate": 'Basic realm="login"'})

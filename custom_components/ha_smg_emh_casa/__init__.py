@@ -34,6 +34,7 @@ from .const import (
     ISSUE_CERTIFICATE_INVALID,
     ISSUE_HTTPS_MIGRATION_FAILED,
     LOGGER,
+    TLS_CONFIG_ENTRY_MINOR_VERSION,
     TLS_MODE_PINNED_CERTIFICATE,
     TLS_MODE_TRUSTED_CERTIFICATE,
 )
@@ -62,13 +63,30 @@ async def async_migrate_entry(
     hass: HomeAssistant,
     entry: EMHCASAConfigEntry,
 ) -> bool:
-    """Migrate an existing entry to an explicit TLS trust mode."""
+    """Migrate TLS settings."""
     if entry.version != 1:
         LOGGER.error("Cannot migrate config entry from version %s", entry.version)
         return False
     if entry.minor_version >= CONFIG_ENTRY_MINOR_VERSION:
         return True
+    if (
+        entry.minor_version < TLS_CONFIG_ENTRY_MINOR_VERSION
+        and not await _async_migrate_tls(hass, entry)
+    ):
+        return False
 
+    hass.config_entries.async_update_entry(
+        entry,
+        minor_version=CONFIG_ENTRY_MINOR_VERSION,
+    )
+    return True
+
+
+async def _async_migrate_tls(
+    hass: HomeAssistant,
+    entry: EMHCASAConfigEntry,
+) -> bool:
+    """Upgrade entries older than 1.2 to an explicit TLS trust mode."""
     data = dict(entry.data)
     options = dict(entry.options)
     values = data | options
@@ -121,7 +139,7 @@ async def async_migrate_entry(
         entry,
         data=data,
         options=options,
-        minor_version=CONFIG_ENTRY_MINOR_VERSION,
+        minor_version=TLS_CONFIG_ENTRY_MINOR_VERSION,
     )
     ir.async_delete_issue(
         hass,

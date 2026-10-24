@@ -29,7 +29,7 @@ def mock_config_entry_fixture() -> MockConfigEntry:
     """Return a mocked config entry."""
     return MockConfigEntry(
         domain=DOMAIN,
-        title=MOCK_CONFIG["username"],
+        title=f"{MOCK_GATEWAY_ID} ({MOCK_CONFIG['username']})",
         data={**MOCK_CONFIG, "gateway_id": MOCK_GATEWAY_ID},
         unique_id=MOCK_GATEWAY_ID,
         minor_version=CONFIG_ENTRY_MINOR_VERSION,
