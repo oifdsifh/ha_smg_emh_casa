@@ -16,8 +16,11 @@ Create a release by:
 - creating an annotated git tag
 - pushing the current branch and tag
 
-Example:
-  bash scripts/release 0.3.3
+Versions: X.Y.Z, optionally followed by -rc.N.
+
+Examples:
+  bash scripts/release 1.0.3-rc.1
+  bash scripts/release 1.0.3
 EOF
 }
 
@@ -31,6 +34,7 @@ require_command() {
 }
 
 VERSION=""
+VERSION_PATTERN='^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$'
 
 if [[ $# -eq 1 && ( "$1" == "-h" || "$1" == "--help" ) ]]; then
   usage
@@ -44,8 +48,8 @@ else
   exit 1
 fi
 
-[[ "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || \
-  die "version must use the format X.Y.Z"
+[[ "${VERSION}" =~ ${VERSION_PATTERN} ]] || \
+  die "version must use X.Y.Z, optionally followed by -rc.N"
 
 cd "${REPO_ROOT}"
 
@@ -63,8 +67,8 @@ if [[ -n "$(git status --porcelain)" ]]; then
 fi
 
 CURRENT_VERSION="$(jq -r '.version' "${MANIFEST_PATH}")"
-[[ "${CURRENT_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || \
-  die "current manifest version must use the format X.Y.Z"
+[[ "${CURRENT_VERSION}" =~ ${VERSION_PATTERN} ]] || \
+  die "current manifest version must use X.Y.Z, optionally followed by -rc.N"
 
 TAG="v${VERSION}"
 
