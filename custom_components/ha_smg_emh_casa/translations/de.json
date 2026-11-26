@@ -1,0 +1,153 @@
+{
+    "config": {
+        "step": {
+            "user": {
+                "description": "Wähle, wie Home Assistant die Identität des Gateways prüfen soll, bevor es deine Zugangsdaten sendet. Mit **Vertrauen und speichern** merkt sich Home Assistant das vorgelegte Zertifikat und warnt dich, wenn es sich ändert. **Vertrauenswürdiges Zertifikat verwenden** prüft die Zertifizierungsstelle und den Hostnamen. Diese Option eignet sich für einen Reverse-Proxy mit einem öffentlich vertrauenswürdigen Zertifikat. **Zertifikat nicht prüfen** verschlüsselt die Verbindung, kann aber ein gefälschtes Gateway nicht erkennen. [Dokumentation]({documentation_url})",
+                "data": {
+                    "host": "Gateway-Adresse",
+                    "tls_mode": "Prüfung des Gateway-Zertifikats"
+                }
+            },
+            "confirm_certificate": {
+                "title": "Diesem Gateway-Zertifikat vertrauen?",
+                "description": "Das Gateway unter `{host}` hat das folgende Zertifikat vorgelegt. Home Assistant speichert es und stellt keine Verbindung mehr her, falls es sich ändert. Vergleiche den Fingerabdruck nach Möglichkeit mit dem Wert, den du direkt vom Gateway erhältst.\n\n**SHA-256-Fingerabdruck:** `{fingerprint}`"
+            },
+            "credentials": {
+                "description": "Gib deinen Benutzernamen und dein Passwort für das Benutzerportal von EMH CASA ein.",
+                "data": {
+                    "username": "Benutzername",
+                    "password": "Passwort",
+                    "scan_interval": "Abfrageintervall"
+                }
+            },
+            "reauth_confirm": {
+                "description": "Aktualisiere die Gateway-Einstellungen, um dich erneut anzumelden. Home Assistant prüft das Zertifikat gemäß deinen Einstellungen, bevor es die Zugangsdaten sendet.",
+                "data": {
+                    "host": "Gateway-Adresse",
+                    "tls_mode": "Prüfung des Gateway-Zertifikats",
+                    "username": "Benutzername",
+                    "password": "Passwort",
+                    "scan_interval": "Abfrageintervall"
+                }
+            },
+            "reauth_confirm_certificate": {
+                "title": "Dem neuen Gateway-Zertifikat vertrauen?",
+                "description": "Das Gateway unter `{host}` hat ein Zertifikat vorgelegt, das Home Assistant noch nicht gespeichert hat. Bestätige das Zertifikat, bevor Home Assistant die aktualisierten Zugangsdaten sendet.\n\n**SHA-256-Fingerabdruck:** `{fingerprint}`"
+            },
+            "gateway_id": {
+                "title": "Gateway-ID (HüID)",
+                "description": "Das Gateway hat seine ID nicht automatisch übermittelt. Melde dich im Gateway-Portal an. Gib die HüID aus der Übersicht ein. Diese Kennung gehört zum Gateway und unterscheidet sich von deiner Benutzer-ID. Home Assistant prüft die Verbindung vor dem Speichern erneut.",
+                "data": {
+                    "gateway_id": "Gateway-ID (HüID)"
+                }
+            }
+        },
+        "error": {
+            "auth": "Benutzername oder Passwort ist falsch.",
+            "certificate_changed_during_setup": "Das Zertifikat hat sich während der Bestätigung geändert. Prüfe den neuen Fingerabdruck, bevor du fortfährst.",
+            "certificate_untrusted": "Das Gateway-Zertifikat konnte nicht überprüft werden.",
+            "connection": "Es konnte keine sichere Verbindung zum Gateway hergestellt werden.",
+            "http_not_allowed": "HTTP wird nicht unterstützt. Gib den Hostnamen oder eine HTTPS-Adresse ein.",
+            "invalid_host": "Gib einen Hostnamen, eine IP-Adresse oder eine HTTPS-Adresse ein. Lass Pfad, Abfrageparameter und Zugangsdaten weg.",
+            "unknown": "Ein unerwarteter Fehler ist aufgetreten.",
+            "gateway_id_required": "Gib die HüID des Gateways ein.",
+            "gateway_id_mismatch": "Die eingegebene HüID stimmt nicht mit der vom Gateway gemeldeten ID überein."
+        },
+        "abort": {
+            "already_configured": "Dieser Eintrag ist bereits eingerichtet.",
+            "reauth_successful": "Die erneute Anmeldung war erfolgreich.",
+            "unknown": "Die Gateway-Daten für die Einrichtung sind nicht mehr verfügbar. Starte die Einrichtung erneut.",
+            "wrong_gateway": "Das Gateway stimmt nicht mit dem zuvor eingerichteten Gateway überein."
+        }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "description": "Wähle, wie Home Assistant die Identität des Gateways prüfen soll. Mit **Vertrauen und speichern** erkennt Home Assistant, wenn sich das Zertifikat ändert. **Vertrauenswürdiges Zertifikat verwenden** prüft die Zertifizierungsstelle und den Hostnamen. **Zertifikat nicht prüfen** verschlüsselt die Verbindung, kann aber ein gefälschtes Gateway nicht erkennen.",
+                "data": {
+                    "host": "Gateway-Adresse",
+                    "tls_mode": "Prüfung des Gateway-Zertifikats",
+                    "username": "Benutzername",
+                    "password": "Passwort",
+                    "scan_interval": "Abfrageintervall"
+                }
+            },
+            "confirm_certificate": {
+                "title": "Dem neuen Gateway-Zertifikat vertrauen?",
+                "description": "Das Gateway unter `{host}` hat ein neues Zertifikat vorgelegt. Bestätige das Zertifikat, bevor Home Assistant die Zugangsdaten sendet.\n\n**SHA-256-Fingerabdruck:** `{fingerprint}`"
+            },
+            "gateway_id": {
+                "title": "Gateway-ID (HüID)",
+                "description": "Das Gateway hat seine ID nicht automatisch übermittelt. Melde dich im Gateway-Portal an. Gib die HüID aus der Übersicht ein. Diese Kennung gehört zum Gateway und unterscheidet sich von deiner Benutzer-ID. Home Assistant prüft die Verbindung vor dem Speichern erneut.",
+                "data": {
+                    "gateway_id": "Gateway-ID (HüID)"
+                }
+            }
+        },
+        "error": {
+            "auth": "Benutzername oder Passwort ist falsch.",
+            "certificate_changed_during_setup": "Das Zertifikat hat sich während der Bestätigung geändert. Prüfe den neuen Fingerabdruck, bevor du fortfährst.",
+            "certificate_untrusted": "Das Gateway-Zertifikat konnte nicht überprüft werden.",
+            "connection": "Es konnte keine sichere Verbindung zum Gateway hergestellt werden.",
+            "http_not_allowed": "HTTP wird nicht unterstützt. Gib den Hostnamen oder eine HTTPS-Adresse ein.",
+            "invalid_host": "Gib einen Hostnamen, eine IP-Adresse oder eine HTTPS-Adresse ein. Lass Pfad, Abfrageparameter und Zugangsdaten weg.",
+            "unknown": "Ein unerwarteter Fehler ist aufgetreten.",
+            "gateway_id_required": "Gib die HüID des Gateways ein.",
+            "gateway_id_mismatch": "Die eingegebene HüID stimmt nicht mit der vom Gateway gemeldeten ID überein."
+        },
+        "abort": {
+            "unknown": "Die Gateway-Daten für diese Änderung sind nicht mehr verfügbar. Öffne die Optionen erneut.",
+            "already_configured": "Dieses HAN-Konto ist für dieses Gateway bereits eingerichtet."
+        }
+    },
+    "selector": {
+        "tls_mode": {
+            "options": {
+                "pinned_certificate": "Diesem Gateway-Zertifikat vertrauen und es speichern",
+                "trusted_certificate": "Ein Zertifikat verwenden, dem Home Assistant vertraut",
+                "insecure": "Zertifikat nicht prüfen (unsicher)"
+            }
+        }
+    },
+    "entity": {
+        "sensor": {
+            "total_import": {
+                "name": "Netzbezug gesamt"
+            },
+            "total_export": {
+                "name": "Netzeinspeisung gesamt"
+            },
+            "reading": {
+                "name": "Messwert {obis_code}"
+            }
+        }
+    },
+    "issues": {
+        "certificate_changed": {
+            "title": "Das Zertifikat des EMH CASA-Gateways hat sich geändert",
+            "fix_flow": {
+                "step": {
+                    "confirm": {
+                        "title": "Das neue Gateway-Zertifikat akzeptieren?",
+                        "description": "Home Assistant hat die Verbindung zu **{entry_title}** vor dem Senden der Zugangsdaten abgebrochen, weil sich das Zertifikat geändert hat. Akzeptiere das neue Zertifikat erst, wenn du sichergestellt hast, dass es absichtlich ausgetauscht wurde. Home Assistant prüft das Zertifikat zweimal und bestätigt die Identität des Gateways, bevor es das Zertifikat speichert.\n\n**Bisheriger Fingerabdruck:** `{old_fingerprint}`\n\n**Neuer Fingerabdruck:** `{new_fingerprint}`"
+                    }
+                },
+                "error": {
+                    "certificate_changed_again": "Das Zertifikat hat sich erneut geändert und wurde nicht gespeichert. Öffne die Reparatur erneut, sobald das Gateway dauerhaft dasselbe Zertifikat verwendet.",
+                    "connection": "Home Assistant konnte die Identität des Gateways mit dem neuen Zertifikat nicht bestätigen.",
+                    "mode_changed": "Dieser Eintrag verwendet keine Zertifikatsbindung mehr.",
+                    "wrong_gateway": "Die bei der Digest-Authentifizierung gemeldete Kennung gehört zu einem anderen Gateway.",
+                    "certificate_untrusted": "Das neue Zertifikat konnte nicht überprüft werden und wurde deshalb nicht gespeichert."
+                }
+            }
+        },
+        "certificate_invalid": {
+            "title": "Das Zertifikat des EMH CASA-Gateways ist ungültig",
+            "description": "Home Assistant hat die Verbindung zu **{entry_title}** abgebrochen, weil das Gateway-Zertifikat nicht überprüft werden konnte.\n\n**Fingerabdruck:** `{fingerprint}`\n\nÜberprüfe das Gateway-Zertifikat und ersetze es bei Bedarf. Die Einstellungen zur Zertifikatsprüfung findest du in den Integrationsoptionen."
+        },
+        "https_migration_failed": {
+            "title": "EMH CASA benötigt eine HTTPS-Adresse",
+            "description": "Der Eintrag **{entry_title}** konnte nicht auf eine HTTPS-Verbindung mit Zertifikatsprüfung umgestellt werden. Korrigiere die Gateway-Adresse oder die Zertifikatseinstellungen in den Integrationsoptionen. Bei diesem Versuch wurden keine Zugangsdaten gesendet."
+        }
+    }
+}

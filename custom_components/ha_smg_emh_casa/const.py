@@ -46,12 +46,12 @@ OBIS_SENSOR_METADATA: dict[
     dict[str, str | SensorDeviceClass | SensorStateClass],
 ] = {
     OBIS_CODE_IMPORT_TOTAL: {
-        "name": "Total import",
+        "translation_key": "total_import",
         "device_class": SensorDeviceClass.ENERGY,
         "state_class": SensorStateClass.TOTAL_INCREASING,
     },
     OBIS_CODE_EXPORT_TOTAL: {
-        "name": "Total export",
+        "translation_key": "total_export",
         "device_class": SensorDeviceClass.ENERGY,
         "state_class": SensorStateClass.TOTAL_INCREASING,
     },

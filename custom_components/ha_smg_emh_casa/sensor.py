@@ -32,7 +32,7 @@ class MeterValueDescription:
 
     logical_name: str
     obis_code: str
-    name: str
+    translation_key: str
     native_unit_of_measurement: str | None
     device_class: SensorDeviceClass | None
     state_class: SensorStateClass | None
@@ -66,12 +66,10 @@ def _build_value_description(value: dict[str, Any]) -> MeterValueDescription | N
         elif native_unit_of_measurement in {"A", "V", "Hz"}:
             suggested_display_precision = 2
 
-    name = str(metadata.get("name") or f"Reading {obis_code}")
-
     return MeterValueDescription(
         logical_name=logical_name,
         obis_code=obis_code,
-        name=name,
+        translation_key=metadata.get("translation_key", "reading"),
         native_unit_of_measurement=native_unit_of_measurement,
         device_class=(
             device_class if isinstance(device_class, SensorDeviceClass) else None
@@ -158,12 +156,16 @@ class EMHCASAMeterValueSensor(  # pyright: ignore[reportIncompatibleVariableOver
         self._value_description = value_description
         self.entity_description = SensorEntityDescription(
             key=value_description.logical_name,
-            name=value_description.name,
+            translation_key=value_description.translation_key,
             device_class=value_description.device_class,
             native_unit_of_measurement=value_description.native_unit_of_measurement,
             state_class=value_description.state_class,
             suggested_display_precision=value_description.suggested_display_precision,
         )
+        if value_description.translation_key == "reading":
+            self._attr_translation_placeholders = {
+                "obis_code": value_description.obis_code
+            }
         self._attr_unique_id = (
             f"{coordinator.config_entry.entry_id}_"
             f"{meter_id}_{value_description.logical_name}"

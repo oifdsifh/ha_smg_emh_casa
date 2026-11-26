@@ -128,6 +128,94 @@ async def test_setup_and_unload_entry(
     assert mock_config_entry.state is ConfigEntryState.NOT_LOADED
 
 
+async def test_german_sensor_names(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_async_get_data: AsyncMock,
+) -> None:
+    """German sensor names include the OBIS code for unrecognized readings."""
+    hass.config.language = "de"
+    meter = MOCK_API_DATA[MOCK_METER_ID]
+    other_code = "0100100700ff"
+    mock_async_get_data.return_value = {
+        MOCK_METER_ID: {
+            **meter,
+            "values": [
+                *meter["values"],
+                {"logical_name": f"{other_code}.{MOCK_METER_ID}.sm", "value": "1"},
+            ],
+        },
+    }
+    mock_config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert {
+        state.attributes["friendly_name"] for state in hass.states.async_all("sensor")
+    } == {
+        f"{MOCK_METER_ID} Netzbezug gesamt",
+        f"{MOCK_METER_ID} Netzeinspeisung gesamt",
+        f"{MOCK_METER_ID} Messwert {other_code}",
+    }
+
+
+@pytest.mark.usefixtures("mock_async_get_data")
+@pytest.mark.parametrize(
+    ("language", "expected_import_name"),
+    [("de", "Netzbezug gesamt"), ("en", "Total import"), ("fr", "Total import")],
+)
+async def test_upgrade_preserves_registered_sensors(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    language: str,
+    expected_import_name: str,
+) -> None:
+    """Reuse pre-translation entity IDs and respect names assigned by the user."""
+    hass.config.language = language
+    mock_config_entry.add_to_hass(hass)
+    registry = er.async_get(hass)
+    legacy_import, legacy_export = (
+        registry.async_get_or_create(
+            "sensor",
+            DOMAIN,
+            f"{mock_config_entry.entry_id}_{MOCK_METER_ID}_{code}.{MOCK_METER_ID}.sm",
+            config_entry=mock_config_entry,
+            object_id_base=f"{MOCK_METER_ID} {name}",
+            original_name=name,
+            has_entity_name=True,
+        )
+        for code, name in (
+            ("0100010800ff", "Total import"),
+            ("0100020800ff", "Total export"),
+        )
+    )
+    custom_export = registry.async_update_entity(
+        legacy_export.entity_id, new_entity_id="sensor.rooftop_export", name="PV export"
+    )
+
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert {
+        entry.entity_id: entry.id
+        for entry in er.async_entries_for_config_entry(
+            registry, mock_config_entry.entry_id
+        )
+    } == {
+        legacy_import.entity_id: legacy_import.id,
+        custom_export.entity_id: legacy_export.id,
+    }
+    import_state = hass.states.get(legacy_import.entity_id)
+    export_state = hass.states.get(custom_export.entity_id)
+    assert import_state is not None
+    assert export_state is not None
+    assert (
+        import_state.attributes["friendly_name"]
+        == f"{MOCK_METER_ID} {expected_import_name}"
+    )
+    assert export_state.attributes["friendly_name"] == "PV export"
+
+
 @pytest.mark.usefixtures("mock_async_get_data")
 async def test_setup_uses_option_overrides_for_connection_details(
     hass: HomeAssistant,

@@ -109,6 +109,19 @@
             }
         }
     },
+    "entity": {
+        "sensor": {
+            "total_import": {
+                "name": "Total import"
+            },
+            "total_export": {
+                "name": "Total export"
+            },
+            "reading": {
+                "name": "Reading {obis_code}"
+            }
+        }
+    },
     "issues": {
         "certificate_changed": {
             "title": "The EMH CASA gateway certificate changed",
