@@ -20,19 +20,23 @@ the readings it exposes. It supports UI setup and local network discovery.
 - Offers certificate pinning, normal certificate validation, and an explicit
   insecure compatibility mode
 
+<!-- ha-marketplace:exclude-start -->
+
 ## Installation
 
-### Via HACS (recommended)
+### Via Marketplace (recommended)
 
-EMH CASA is included in the HACS store. If you do not have HACS yet,
-[install HACS](https://www.hacs.xyz/docs/use/download/download/) first.
+Marketplace installation requires Home Assistant 2026.11 or later.
 
-[![Open EMH CASA in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=oifdsifh&repository=ha_smg_emh_casa&category=integration)
+[![Open EMH CASA in Marketplace](https://my.home-assistant.io/badges/marketplace_repository.svg)](https://my.home-assistant.io/redirect/marketplace_repository/?owner=oifdsifh&repository=ha_smg_emh_casa&category=integration)
 
-1. Click the button above, or open HACS in Home Assistant and search for
-   `EMH CASA`.
-2. Open the integration and download it.
-3. Restart Home Assistant, then follow [Setup](#setup) below.
+You can also install EMH CASA directly in Home Assistant.
+
+1. Go to **Settings → Marketplace**.
+2. Search for **EMH CASA** and open its listing.
+3. Select **Install** and confirm.
+
+After installing EMH CASA, follow [Setup](#setup).
 
 ### Manual installation
 
@@ -45,6 +49,8 @@ EMH CASA is included in the HACS store. If you do not have HACS yet,
    exist. The resulting path should be
    `/config/custom_components/ha_smg_emh_casa`.
 3. Restart Home Assistant, then follow [Setup](#setup) below.
+
+<!-- ha-marketplace:exclude-end -->
 
 ## Setup
 
